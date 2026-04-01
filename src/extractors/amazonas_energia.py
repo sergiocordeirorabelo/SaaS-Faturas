@@ -1,305 +1,406 @@
 """
-Extrator Amazonas Energia — implementação específica para o portal da concessionária.
+Extrator Amazonas Energia — versão HTTP pura (sem Playwright/browser).
 
-Portal: https://www.amazonasenergia.gov.br (ou portal de atendimento online)
-Fluxo:
-  1. Acessa a página de login
-  2. Preenche CPF/CNPJ + Senha
-  3. Resolve reCAPTCHA v2
-  4. Navega para "Segunda Via / Histórico de Faturas"
-  5. Faz download dos PDFs dos últimos N meses
-  6. Faz upload para o Supabase Storage
+Usa a API REST diretamente com JWT para extrair faturas.
+Sem captcha, sem browser, sem stealth.
 
-NOTA: Os seletores CSS/XPath abaixo são baseados na estrutura conhecida do portal.
-      Caso o portal sofra atualização de layout, o worker captura screenshot e 
-      marca a tarefa como 'erro_extracao' para análise manual.
+API mapeada via DevTools:
+  POST /api/autenticacao/login          → JWT (captcha necessário, feito externamente)
+  GET  /api/faturas/pagas               → lista faturas pagas
+  GET  /api/faturas/abertas             → lista faturas abertas
+  POST /api/faturas/baixar              → download do PDF da fatura
+
+Headers obrigatórios em cada request:
+  Authorization: Bearer {jwt}
+  X-Client-Id: {id_cliente}
+  X-Consumer-Unit: {id_uc}
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import re
-from datetime import datetime, date
-from dateutil.relativedelta import relativedelta
+import tempfile
 from pathlib import Path
 from typing import Optional
 
-from playwright.async_api import TimeoutError as PlaywrightTimeout, Download
+import httpx
 
-from src.captcha.solver import solve_with_retry, CaptchaError
 from src.config import settings
-from src.extractors.base import BaseExtractor, LoginError, ExtractionError
+from src.db.client import SupabaseClient
+from src.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Constantes do Portal
-# ─────────────────────────────────────────────────────────────────────────────
-
-PORTAL_URL = "https://servicos.amazonasenergia.gov.br"
-LOGIN_URL = f"{PORTAL_URL}/login"
-HISTORICO_URL = f"{PORTAL_URL}/segunda-via"
-
-# Seletores — atualizar se o portal mudar de layout
-SEL_CPF_INPUT = "input[name='cpf_cnpj'], input[id*='cpf'], input[placeholder*='CPF']"
-SEL_SENHA_INPUT = "input[type='password']"
-SEL_SUBMIT_BTN = "button[type='submit'], input[type='submit']"
-SEL_RECAPTCHA_IFRAME = "iframe[src*='recaptcha']"
-SEL_RECAPTCHA_SITEKEY = ".g-recaptcha, [data-sitekey]"
-SEL_FATURA_ROWS = "table.faturas tbody tr, .lista-faturas .item-fatura"
-SEL_DOWNLOAD_BTN = "a[href*='.pdf'], button[data-action='download'], a.btn-download"
-SEL_MES_REF = "td.mes-referencia, .mes-fatura, td:first-child"
-SEL_ERROR_MSG = ".alert-danger, .error-message, [class*='erro']"
+API_URL = "https://api-agencia.amazonasenergia.com"
 
 
-class AmazonasEnergiaExtractor(BaseExtractor):
-    """
-    Extrator de faturas para o portal da Amazonas Energia.
-    Herda ciclo de vida do Playwright de BaseExtractor.
-    """
+class AmazonasEnergiaHTTPExtractor:
+    """Extrator de faturas via API REST — sem browser, sem captcha."""
 
-    async def _extract(self) -> list[dict]:
+    def __init__(self, db: SupabaseClient, task: dict):
+        self.db = db
+        self.task = task
+        self.task_id: str = task["id"]
+        self.credentials: dict = task.get("credentials", {})
+        self._tmp_dir = Path(tempfile.mkdtemp(prefix=f"task_{self.task_id}_"))
+
+    async def run(self) -> list[dict]:
         """
-        Orquestra todo o fluxo de extração:
-        login → navegação → download → upload.
-
-        Returns:
-            Lista de metadados dos PDFs enviados ao Storage.
+        Fluxo principal:
+        1. Obtém JWT (das credentials ou via login automático)
+        2. Descobre clientes e UCs
+        3. Para cada UC: busca faturas abertas + pagas
+        4. Baixa cada PDF e faz upload ao Supabase Storage
         """
-        await self._do_login()
-        await self._navigate_to_historico()
-        pdf_records = await self._download_faturas()
-        return pdf_records
+        jwt = self.credentials.get("jwt", "")
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Etapa 1 — Login
-    # ─────────────────────────────────────────────────────────────────────────
+        # Se não tem JWT mas tem CPF+senha, tenta login via API
+        if not jwt:
+            cpf = self.credentials.get("cpf_cnpj", "")
+            senha = self.credentials.get("senha", "")
+            if not cpf or not senha:
+                raise Exception(
+                    "Credenciais insuficientes. Forneça 'jwt' ou 'cpf_cnpj' + 'senha'."
+                )
+            login_data = await self._do_login_via_playwright(cpf, senha)
+            jwt = login_data["TOKEN"]
 
-    async def _do_login(self) -> None:
-        """Realiza o login com tratamento de captcha e credenciais inválidas."""
-        cpf_cnpj = self.credentials.get("cpf_cnpj", "")
-        senha = self.credentials.get("senha", "")
-        unidade_consumidora = self.credentials.get("unidade_consumidora", "")
+            # Salva JWT + dados completos na tarefa para reuso
+            all_ucs = []
+            id_cliente = ""
+            for cli in login_data.get("CLIENTES", []):
+                if not id_cliente:
+                    id_cliente = str(cli["ID_CLIENTE"])
+                for uc in cli.get("UNIDADES_CONSUMIDORAS", []):
+                    all_ucs.append(str(uc["ID_UC"]))
 
-        if not cpf_cnpj and not unidade_consumidora:
-            raise LoginError("Credenciais insuficientes: CPF/CNPJ ou UC obrigatório.")
-
-        logger.info(f"[Task {self.task_id}] Acessando portal de login: {LOGIN_URL}")
-        await self._page.goto(LOGIN_URL, wait_until="networkidle")
-
-        # Preenche CPF/CNPJ (ou número da UC se disponível)
-        identifier = cpf_cnpj or unidade_consumidora
-        await self._safe_fill(SEL_CPF_INPUT, identifier)
-
-        if senha:
-            await self._safe_fill(SEL_SENHA_INPUT, senha)
-
-        # ── Captcha ──────────────────────────────────────────────────────────
-        site_key = await self._get_recaptcha_sitekey()
-        if site_key:
-            logger.info(f"[Task {self.task_id}] reCAPTCHA detectado. Site key: {site_key[:20]}...")
-            try:
-                token = await solve_with_retry(site_key=site_key, page_url=LOGIN_URL)
-                await self._inject_recaptcha_token(token)
-            except CaptchaError as exc:
-                raise ExtractionError(f"Falha na resolução do captcha: {exc}") from exc
-
-        # Submete o formulário
-        await self._safe_click(SEL_SUBMIT_BTN)
-
-        # Aguarda redirecionamento ou mensagem de erro
-        try:
-            await self._page.wait_for_load_state("networkidle", timeout=20_000)
-        except PlaywrightTimeout:
-            pass  # Pode ser que o portal usa SPA (sem navegação full)
-
-        await self._assert_login_success()
-
-    async def _get_recaptcha_sitekey(self) -> Optional[str]:
-        """Extrai o data-sitekey do reCAPTCHA na página, se existir."""
-        try:
-            element = await self._page.query_selector(SEL_RECAPTCHA_SITEKEY)
-            if element:
-                return await element.get_attribute("data-sitekey")
-        except Exception:
-            pass
-        return None
-
-    async def _assert_login_success(self) -> None:
-        """Verifica se o login foi bem-sucedido ou lança exceções adequadas."""
-        current_url = self._page.url
-
-        # Ainda na página de login = falhou
-        if "login" in current_url.lower():
-            # Verifica mensagem de erro específica
-            error_el = await self._page.query_selector(SEL_ERROR_MSG)
-            error_text = ""
-            if error_el:
-                error_text = (await error_el.inner_text()).strip()
-
-            if any(kw in error_text.lower() for kw in ["inválid", "incorret", "senha", "usuário"]):
-                raise LoginError(f"Credenciais inválidas: {error_text}")
-
-            raise ExtractionError(f"Login não concluído. URL atual: {current_url}. Erro: {error_text}")
-
-        logger.info(f"[Task {self.task_id}] Login realizado com sucesso. URL: {current_url}")
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Etapa 2 — Navegação para histórico
-    # ─────────────────────────────────────────────────────────────────────────
-
-    async def _navigate_to_historico(self) -> None:
-        """Navega para a seção de segunda via / histórico de faturas."""
-        logger.info(f"[Task {self.task_id}] Navegando para histórico de faturas...")
-
-        try:
-            await self._page.goto(HISTORICO_URL, wait_until="networkidle")
-        except PlaywrightTimeout:
-            # Tenta localizar o link de menu como fallback
-            menu_link = await self._page.query_selector(
-                "a[href*='segunda-via'], a[href*='historico'], a:has-text('Segunda Via')"
+            self.credentials = {
+                **self.credentials,
+                "jwt": jwt,
+                "clientes": login_data.get("CLIENTES", []),
+                "id_cliente": id_cliente,
+                "ucs": all_ucs,
+            }
+            logger.info(
+                f"[Task {self.task_id}] Login OK! JWT salvo. "
+                f"{len(all_ucs)} UC(s) encontrada(s)."
             )
-            if menu_link:
-                await menu_link.click()
-                await self._page.wait_for_load_state("networkidle")
-            else:
-                raise ExtractionError("Não foi possível navegar para o histórico de faturas.")
 
-        # Aguarda a tabela de faturas carregar
+        # Headers base (compartilhados em todas as requests)
+        base_headers = {
+            "Authorization": f"Bearer {jwt}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Origin": "https://agencia.amazonasenergia.com",
+            "Referer": "https://agencia.amazonasenergia.com/",
+        }
+
+        async with httpx.AsyncClient(
+            base_url=API_URL,
+            headers=base_headers,
+            timeout=30,
+        ) as client:
+
+            # 1. Descobre clientes e UCs
+            clientes_ucs = self._parse_clientes_from_credentials()
+            logger.info(
+                f"[Task {self.task_id}] "
+                f"{len(clientes_ucs)} par(es) cliente/UC para processar."
+            )
+
+            all_pdfs: list[dict] = []
+
+            # 2. Para cada cliente+UC, busca e baixa faturas
+            for item in clientes_ucs:
+                id_cliente = item["id_cliente"]
+                id_uc = item["id_uc"]
+                logger.info(
+                    f"[Task {self.task_id}] Processando UC {id_uc} "
+                    f"(Cliente {id_cliente})"
+                )
+
+                uc_headers = {
+                    "X-Client-Id": str(id_cliente),
+                    "X-Consumer-Unit": str(id_uc),
+                }
+
+                # Busca faturas abertas PRIMEIRO (são as mais importantes)
+                faturas_abertas = await self._fetch_faturas(client, uc_headers, "abertas")
+                faturas_pagas = await self._fetch_faturas(client, uc_headers, "pagas")
+
+                logger.info(
+                    f"[Task {self.task_id}] UC {id_uc}: "
+                    f"{len(faturas_pagas)} pagas + {len(faturas_abertas)} abertas"
+                )
+
+                # Abertas TODAS (sem limite) + pagas até o limite
+                faturas_para_baixar = faturas_abertas + faturas_pagas[:settings.MAX_INVOICES_MONTHS]
+
+                # 3. Baixa cada fatura
+                for fatura in faturas_para_baixar:
+                    pdf = await self._download_fatura(
+                        client, uc_headers, id_uc, fatura
+                    )
+                    if pdf:
+                        all_pdfs.append(pdf)
+                    await asyncio.sleep(0.5)
+
+            return all_pdfs
+
+    def _parse_clientes_from_credentials(self) -> list[dict]:
+        """
+        Extrai pares (id_cliente, id_uc) das credentials.
+
+        Suporta dois formatos:
+        1. Simples: {"id_cliente": "123", "unidade_consumidora": "456"}
+        2. Múltiplas UCs: {"id_cliente": "123", "ucs": ["456", "789"]}
+        3. Login response salva: {"clientes": [{...}]}
+        """
+        # Formato 3: resposta completa do login salva
+        if "clientes" in self.credentials:
+            result = []
+            for cli in self.credentials["clientes"]:
+                id_cli = cli.get("ID_CLIENTE", cli.get("id_cliente"))
+                ucs = cli.get("UNIDADES_CONSUMIDORAS", cli.get("ucs", []))
+                for uc in ucs:
+                    if isinstance(uc, dict):
+                        result.append({"id_cliente": id_cli, "id_uc": uc["ID_UC"]})
+                    else:
+                        result.append({"id_cliente": id_cli, "id_uc": int(uc)})
+            return result
+
+        id_cliente = self.credentials.get("id_cliente", "")
+        if not id_cliente:
+            raise Exception(
+                "id_cliente não fornecido nas credentials. "
+                "Salve os dados do login (ID_CLIENTE e UCs) no campo credentials."
+            )
+
+        # Formato 2: múltiplas UCs
+        if "ucs" in self.credentials:
+            return [
+                {"id_cliente": int(id_cliente), "id_uc": int(uc)}
+                for uc in self.credentials["ucs"]
+            ]
+
+        # Formato 1: UC única
+        uc = self.credentials.get("unidade_consumidora", "")
+        if not uc:
+            raise Exception("unidade_consumidora não fornecido nas credentials.")
+
+        return [{"id_cliente": int(id_cliente), "id_uc": int(uc)}]
+
+    async def _fetch_faturas(
+        self,
+        client: httpx.AsyncClient,
+        uc_headers: dict,
+        tipo: str,
+    ) -> list[dict]:
+        """Busca faturas pagas ou abertas de uma UC."""
         try:
-            await self._page.wait_for_selector(SEL_FATURA_ROWS, timeout=15_000)
-        except PlaywrightTimeout:
-            raise ExtractionError("Tabela de faturas não encontrada após navegação.")
+            resp = await client.get(
+                f"/api/faturas/{tipo}",
+                headers=uc_headers,
+            )
 
-        logger.info(f"[Task {self.task_id}] Página de histórico carregada.")
+            if resp.status_code == 401:
+                raise Exception(
+                    "JWT expirado (401). Necessário re-autenticar. "
+                    "Faça login novamente e atualize o JWT na tarefa."
+                )
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Etapa 3 — Download das faturas
-    # ─────────────────────────────────────────────────────────────────────────
+            if resp.status_code != 200:
+                logger.warning(
+                    f"[Task {self.task_id}] Erro faturas {tipo}: "
+                    f"status={resp.status_code}"
+                )
+                return []
 
-    async def _download_faturas(self) -> list[dict]:
-        """
-        Identifica e baixa as faturas dos últimos N meses.
+            data = resp.json()
 
-        Returns:
-            Lista de dicts com mes_referencia e storage_url.
-        """
-        months_limit = settings.MAX_INVOICES_MONTHS
-        cutoff_date = date.today() - relativedelta(months=months_limit)
+            # A API pode retornar lista direta ou {"data": [...]}
+            if isinstance(data, list):
+                return data
+            return data.get("data", [])
 
-        rows = await self._page.query_selector_all(SEL_FATURA_ROWS)
-        logger.info(f"[Task {self.task_id}] {len(rows)} fatura(s) encontrada(s) na tabela.")
+        except httpx.HTTPError as exc:
+            logger.error(f"[Task {self.task_id}] Erro HTTP faturas {tipo}: {exc}")
+            return []
 
-        if not rows:
-            raise ExtractionError("Nenhuma fatura encontrada na tabela.")
+    async def _download_fatura(
+        self,
+        client: httpx.AsyncClient,
+        uc_headers: dict,
+        id_uc: int,
+        fatura: dict,
+    ) -> Optional[dict]:
+        """Baixa o PDF de uma fatura e faz upload ao Supabase Storage."""
+        mes_ano = fatura.get("MES_ANO_REFERENCIA", "")
+        fatura_diversa = fatura.get("FATURA_DIVERSA", 0)
 
-        pdf_records: list[dict] = []
+        if not mes_ano:
+            return None
 
-        for i, row in enumerate(rows):
-            # Extrai o mês de referência da linha
-            mes_ref = await self._parse_mes_referencia(row)
-            if mes_ref and mes_ref < cutoff_date:
-                logger.debug(f"[Task {self.task_id}] Fatura {mes_ref} fora do período. Ignorando.")
-                continue
+        # Converte "02/2026" → "022026"
+        mes_ano_param = mes_ano.replace("/", "")
 
-            # Localiza o botão de download dentro da linha
-            download_btn = await row.query_selector(SEL_DOWNLOAD_BTN)
-            if not download_btn:
-                logger.warning(f"[Task {self.task_id}] Linha {i+1}: botão de download não encontrado.")
-                continue
+        try:
+            resp = await client.post(
+                "/api/faturas/baixar",
+                headers=uc_headers,
+                json={
+                    "MES_ANO": mes_ano_param,
+                    "FATURA_DIVERSA": fatura_diversa,
+                },
+                timeout=60,
+            )
 
-            # Executa o download
-            local_path = await self._download_pdf(download_btn, mes_ref, index=i)
-            if not local_path:
-                continue
+            if resp.status_code != 200:
+                logger.warning(
+                    f"[Task {self.task_id}] Download falhou {mes_ano}: "
+                    f"status={resp.status_code}"
+                )
+                return None
 
-            # Upload para o Supabase Storage
-            mes_str = mes_ref.strftime("%Y-%m") if mes_ref else f"fatura_{i+1}"
-            uc = self.credentials.get("unidade_consumidora") or self.credentials.get("cpf_cnpj", "unknown")
-            storage_path = f"faturas/{uc}/{mes_str}.pdf"
+            # Valida se é realmente um PDF
+            if len(resp.content) < 500:
+                logger.warning(
+                    f"[Task {self.task_id}] Resposta muito pequena para {mes_ano}: "
+                    f"{len(resp.content)} bytes — provavelmente não é PDF"
+                )
+                return None
 
+            # Salva localmente
+            mes_str = mes_ano.replace("/", "-")
+            filename = f"fatura_{id_uc}_{mes_str}.pdf"
+            local_path = self._tmp_dir / filename
+            local_path.write_bytes(resp.content)
+
+            size_kb = len(resp.content) // 1024
+            logger.info(f"[Task {self.task_id}] ✓ {filename} ({size_kb} KB)")
+
+            # Upload para Supabase Storage
+            storage_path = f"faturas/{id_uc}/{mes_str}.pdf"
             storage_url = await self.db.upload_pdf(
                 local_path=local_path,
                 storage_path=storage_path,
                 task_id=self.task_id,
             )
 
-            pdf_records.append({
-                "mes_referencia": mes_str,
+            return {
+                "mes_referencia": mes_ano,
+                "uc": id_uc,
                 "storage_url": storage_url,
-                "filename": local_path.name,
-            })
-
-            logger.info(f"[Task {self.task_id}] ✓ Fatura {mes_str} processada.")
-
-            # Pequena pausa entre downloads para não sobrecarregar o servidor
-            await asyncio.sleep(1.5)
-
-        return pdf_records
-
-    async def _parse_mes_referencia(self, row) -> Optional[date]:
-        """
-        Tenta extrair a data de referência de uma linha da tabela.
-        Suporta formatos: MM/YYYY, YYYY-MM, Jan/2024, etc.
-        """
-        try:
-            cell = await row.query_selector(SEL_MES_REF)
-            if not cell:
-                return None
-
-            text = (await cell.inner_text()).strip()
-
-            # Tenta múltiplos formatos
-            for fmt in ("%m/%Y", "%Y-%m", "%b/%Y", "%B/%Y", "%m-%Y"):
-                try:
-                    return datetime.strptime(text, fmt).date().replace(day=1)
-                except ValueError:
-                    continue
-
-            # Fallback: extrai números e tenta construir a data
-            nums = re.findall(r'\d+', text)
-            if len(nums) >= 2:
-                month, year = int(nums[0]), int(nums[1])
-                if 1 <= month <= 12 and 2000 <= year <= 2100:
-                    return date(year, month, 1)
+                "filename": filename,
+                "size_kb": size_kb,
+                "situacao": fatura.get("SITUACAO", ""),
+                "valor": fatura.get("VALOR_TOTAL", 0),
+            }
 
         except Exception as exc:
-            logger.debug(f"Não foi possível parsear mês de referência: {exc}")
-
-        return None
-
-    async def _download_pdf(self, btn_element, mes_ref: Optional[date], index: int) -> Optional[Path]:
-        """
-        Clica no botão de download e aguarda o arquivo ser salvo.
-
-        Returns:
-            Path local do arquivo baixado, ou None em caso de falha.
-        """
-        mes_str = mes_ref.strftime("%Y-%m") if mes_ref else f"fatura_{index+1}"
-        filename = f"{mes_str}.pdf"
-        local_path = self._tmp_dir / filename
-
-        try:
-            async with self._page.expect_download(timeout=30_000) as dl_info:
-                await btn_element.click()
-
-            download: Download = await dl_info.value
-
-            if download.failure():
-                logger.error(f"[Task {self.task_id}] Download falhou: {download.failure()}")
-                return None
-
-            await download.save_as(str(local_path))
-            size_kb = local_path.stat().st_size // 1024
-            logger.info(f"[Task {self.task_id}] Downloaded: {filename} ({size_kb} KB)")
-            return local_path
-
-        except PlaywrightTimeout:
-            logger.error(f"[Task {self.task_id}] Timeout aguardando download de {mes_str}.")
-            await self._capture_error_screenshot(f"timeout_download_{mes_str}")
+            logger.error(f"[Task {self.task_id}] Erro download {mes_ano}: {exc}")
             return None
-        except Exception as exc:
-            logger.error(f"[Task {self.task_id}] Erro no download de {mes_str}: {exc}")
-            return None
+
+    async def _do_login_via_playwright(self, cpf: str, senha: str) -> dict:
+        """
+        Faz login via Playwright (Chrome real) para capturar o JWT.
+        
+        O captcha é resolvido pelo browser nativamente.
+        Com headless=false, um operador pode intervir se necessário.
+        Uma vez obtido o JWT, tudo roda via httpx.
+        """
+        from playwright.async_api import async_playwright
+
+        logger.info(f"[Task {self.task_id}] Iniciando login via Playwright...")
+
+        login_result = {}
+
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                channel="chrome",
+                headless=settings.BROWSER_HEADLESS,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+
+            context = await browser.new_context(
+                viewport={"width": 1366, "height": 768},
+                locale="pt-BR",
+                timezone_id="America/Manaus",
+                geolocation={"latitude": -3.1190, "longitude": -60.0217},
+                permissions=["geolocation"],
+            )
+
+            # Aplica stealth
+            try:
+                from playwright_stealth import Stealth
+                stealth = Stealth(init_scripts_only=True)
+                await stealth.apply_stealth_async(context)
+            except ImportError:
+                pass
+
+            page = await context.new_page()
+
+            # Intercepta resposta do login para capturar JWT
+            async def capture_login_response(response):
+                if "autenticacao/login" in response.url and response.status == 200:
+                    try:
+                        data = await response.json()
+                        login_result["data"] = data
+                        logger.info(f"[Task {self.task_id}] JWT capturado do login!")
+                    except Exception:
+                        pass
+
+            page.on("response", capture_login_response)
+
+            try:
+                # Acessa portal
+                await page.goto("https://agencia.amazonasenergia.com", wait_until="networkidle")
+
+                # Preenche credenciais
+                cpf_input = page.locator("input#CPF_CNPJ")
+                await cpf_input.click()
+                await cpf_input.fill("")
+                await cpf_input.type(cpf, delay=100)
+
+                senha_input = page.locator("input#SENHA")
+                await senha_input.click()
+                await senha_input.fill("")
+                await senha_input.type(senha, delay=100)
+
+                # Clica no checkbox "Não sou um robô"
+                checkbox = page.locator("text=Não sou um robô").first
+                await checkbox.click()
+
+                logger.info(
+                    f"[Task {self.task_id}] Credenciais preenchidas. "
+                    "Aguardando login (captcha + Entrar)..."
+                )
+
+                # Aguarda até 120s pelo login (dá tempo pro operador intervir)
+                for _ in range(120):
+                    if login_result.get("data"):
+                        break
+                    await page.wait_for_timeout(1000)
+
+                if not login_result.get("data"):
+                    # Tenta clicar em Entrar automaticamente
+                    try:
+                        await page.locator("button[type='submit']").click()
+                        for _ in range(30):
+                            if login_result.get("data"):
+                                break
+                            await page.wait_for_timeout(1000)
+                    except Exception:
+                        pass
+
+                if not login_result.get("data"):
+                    raise Exception(
+                        "Login não completado em 150s. "
+                        "Com BROWSER_HEADLESS=false, resolva o captcha manualmente."
+                    )
+
+            finally:
+                await browser.close()
+
+        return login_result["data"]

@@ -1,0 +1,1 @@
+{"error":"Internal server error","message":{"expose":true,"statusCode":400,"status":400,"body":"��{\"MES_ANO\":\"022026\",\"FATURA_DIVERSA\":0}","type":"entity.parse.failed"}}

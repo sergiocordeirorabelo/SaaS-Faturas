@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 from playwright.async_api import (
     async_playwright,
@@ -23,8 +24,16 @@ from playwright.async_api import (
 
 from src.config import settings
 from src.db.client import SupabaseClient
+from src.utils.logger import setup_logger
 
-logger = logging.getLogger(__name__)
+# playwright-stealth para anti-detecção mais robusta
+try:
+    from playwright_stealth import Stealth
+    HAS_STEALTH = True
+except ImportError:
+    HAS_STEALTH = False
+
+logger = setup_logger(__name__)
 
 
 class LoginError(Exception):
@@ -93,11 +102,31 @@ class BaseExtractor(ABC):
     # Ciclo de vida do Playwright
     # ─────────────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _parse_proxy_url(proxy_url: str) -> dict:
+        """
+        Converte URL de proxy com credenciais embutidas para o formato
+        que o Playwright espera (server, username, password separados).
+        
+        Entrada:  http://user:pass@host:port
+        Saída:    {"server": "http://host:port", "username": "user", "password": "pass"}
+        """
+        parsed = urlparse(proxy_url)
+        proxy_config = {
+            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+        }
+        if parsed.username:
+            proxy_config["username"] = parsed.username
+        if parsed.password:
+            proxy_config["password"] = parsed.password
+        return proxy_config
+
     async def _setup_browser(self) -> None:
         """Inicializa o Playwright com configurações stealth e proxy opcional."""
         self._playwright = await async_playwright().start()
 
         launch_kwargs = {
+            "channel": "chrome",  # Chrome REAL, não Chromium (TLS/JA3 correto)
             "headless": settings.BROWSER_HEADLESS,
             "slow_mo": settings.BROWSER_SLOW_MO_MS,
             "args": [
@@ -109,7 +138,8 @@ class BaseExtractor(ABC):
         }
 
         if settings.PROXY_SERVER:
-            launch_kwargs["proxy"] = {"server": settings.PROXY_SERVER}
+            launch_kwargs["proxy"] = self._parse_proxy_url(settings.PROXY_SERVER)
+            logger.info(f"[Task {self.task_id}] Proxy configurado: {launch_kwargs['proxy']['server']}")
 
         self._browser = await self._playwright.chromium.launch(**launch_kwargs)
 
@@ -123,18 +153,21 @@ class BaseExtractor(ABC):
             "locale": "pt-BR",
             "timezone_id": "America/Manaus",
             "accept_downloads": True,
+            "ignore_https_errors": bool(settings.PROXY_SERVER),
+            "geolocation": {"latitude": -3.1190, "longitude": -60.0217},
+            "permissions": ["geolocation"],
         }
 
         self._context = await self._browser.new_context(**context_kwargs)
         self._context.set_default_timeout(settings.BROWSER_TIMEOUT_MS)
 
-        # Injeta script stealth antes de cada página (remove marcadores de automação)
-        await self._context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            Object.defineProperty(navigator, 'languages', { get: () => ['pt-BR', 'pt', 'en-US'] });
-            window.chrome = { runtime: {} };
-        """)
+        # Aplica stealth para anti-detecção
+        if HAS_STEALTH:
+            stealth = Stealth(init_scripts_only=True)
+            await stealth.apply_stealth_async(self._context)
+            logger.debug(f"[Task {self.task_id}] playwright-stealth v2 aplicado ao contexto.")
+        else:
+            logger.debug(f"[Task {self.task_id}] playwright-stealth não disponível, usando fallback manual.")
 
         self._page = await self._context.new_page()
         logger.debug(f"[Task {self.task_id}] Navegador iniciado.")
@@ -184,10 +217,12 @@ class BaseExtractor(ABC):
 
     async def _safe_fill(self, selector: str, value: str) -> None:
         """Preenche um campo de formulário simulando digitação humana."""
+        import random
         locator = self._page.locator(selector)
         await locator.click()
         await locator.fill("")
-        await locator.type(value, delay=50)
+        # Delay variável entre 80-180ms por tecla (mais humano)
+        await locator.type(value, delay=random.randint(80, 180))
 
     async def _inject_recaptcha_token(self, token: str) -> None:
         """Injeta o token resolvido pelo serviço de captcha no DOM da página."""

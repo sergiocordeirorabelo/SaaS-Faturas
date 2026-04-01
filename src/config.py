@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     # ── Proxy (opcional) ──────────────────────────────────────────────────────
     PROXY_SERVER: str | None = Field(default=None, description="URL do proxy: http://user:pass@host:port")
 
+    # ── Proxy para Captcha (residencial BR — eleva o score) ──────────────────
+    CAPTCHA_PROXY_TYPE: str = Field(default="http", description="Tipo do proxy: http | https | socks5")
+    CAPTCHA_PROXY_ADDRESS: str | None = Field(default=None, description="Host do proxy residencial")
+    CAPTCHA_PROXY_PORT: int = Field(default=0, description="Porta do proxy")
+    CAPTCHA_PROXY_LOGIN: str | None = Field(default=None, description="Usuário do proxy")
+    CAPTCHA_PROXY_PASSWORD: str | None = Field(default=None, description="Senha do proxy")
+
     # ── Worker ────────────────────────────────────────────────────────────────
     POLL_INTERVAL_SECONDS: int = Field(default=15, description="Intervalo entre ciclos de polling (s)")
     MAX_CONCURRENT_TASKS: int = Field(default=2, description="Máximo de tarefas simultâneas")

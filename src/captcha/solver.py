@@ -1,7 +1,6 @@
 """
 Módulo de resolução de CAPTCHA.
 Suporta: 2Captcha, Anti-Captcha, CapSolver.
-Implementa retry automático e timeout configurável.
 """
 
 from __future__ import annotations
@@ -18,46 +17,23 @@ from src.config import settings
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Classe base
-# ─────────────────────────────────────────────────────────────────────────────
-
 class CaptchaSolverBase(ABC):
-    """Interface comum para todos os solvers de captcha."""
-
     @abstractmethod
     async def solve_recaptcha_v2(self, site_key: str, page_url: str) -> str:
-        """
-        Resolve um reCAPTCHA v2.
-
-        Args:
-            site_key: Chave pública do reCAPTCHA (data-sitekey).
-            page_url: URL da página onde o captcha está presente.
-
-        Returns:
-            Token g-recaptcha-response resolvido.
-
-        Raises:
-            CaptchaTimeoutError: Se não resolver dentro do timeout.
-            CaptchaError: Para qualquer outro erro da API.
-        """
+        pass
 
 
 class CaptchaError(Exception):
-    """Erro genérico de resolução de captcha."""
+    pass
 
 
 class CaptchaTimeoutError(CaptchaError):
-    """Timeout aguardando a resolução."""
+    pass
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2Captcha
-# ─────────────────────────────────────────────────────────────────────────────
+# ── 2Captcha ──────────────────────────────────────────────────────────────────
 
 class TwoCaptchaSolver(CaptchaSolverBase):
-    """Integração com a API do 2Captcha."""
-
     BASE_URL = "https://2captcha.com"
 
     def __init__(self, api_key: str):
@@ -65,7 +41,6 @@ class TwoCaptchaSolver(CaptchaSolverBase):
 
     async def solve_recaptcha_v2(self, site_key: str, page_url: str) -> str:
         async with httpx.AsyncClient(timeout=30) as client:
-            # 1. Envia o captcha para resolução
             resp = await client.post(
                 f"{self.BASE_URL}/in.php",
                 data={
@@ -73,6 +48,8 @@ class TwoCaptchaSolver(CaptchaSolverBase):
                     "method": "userrecaptcha",
                     "googlekey": site_key,
                     "pageurl": page_url,
+                    "enterprise": 1,
+                    "invisible": 1,
                     "json": 1,
                 },
             )
@@ -83,11 +60,8 @@ class TwoCaptchaSolver(CaptchaSolverBase):
                 raise CaptchaError(f"2Captcha erro ao submeter: {data}")
 
             captcha_id = data["request"]
-            logger.debug(f"2Captcha — ID de tarefa: {captcha_id}")
-
-            # 2. Polling para obter o resultado
             elapsed = 0
-            await asyncio.sleep(15)  # Aguarda antes do primeiro poll
+            await asyncio.sleep(15)
 
             while elapsed < settings.CAPTCHA_TIMEOUT_SECONDS:
                 result = await client.get(
@@ -98,7 +72,6 @@ class TwoCaptchaSolver(CaptchaSolverBase):
                 result_data = result.json()
 
                 if result_data.get("status") == 1:
-                    logger.info("2Captcha — Captcha resolvido com sucesso.")
                     return result_data["request"]
                 elif result_data.get("request") != "CAPCHA_NOT_READY":
                     raise CaptchaError(f"2Captcha erro: {result_data}")
@@ -106,18 +79,12 @@ class TwoCaptchaSolver(CaptchaSolverBase):
                 await asyncio.sleep(settings.CAPTCHA_POLL_INTERVAL_SECONDS)
                 elapsed += settings.CAPTCHA_POLL_INTERVAL_SECONDS
 
-            raise CaptchaTimeoutError(
-                f"2Captcha não resolveu em {settings.CAPTCHA_TIMEOUT_SECONDS}s"
-            )
+            raise CaptchaTimeoutError(f"2Captcha timeout após {settings.CAPTCHA_TIMEOUT_SECONDS}s")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Anti-Captcha
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Anti-Captcha ──────────────────────────────────────────────────────────────
 
 class AntiCaptchaSolver(CaptchaSolverBase):
-    """Integração com a API do Anti-Captcha."""
-
     BASE_URL = "https://api.anti-captcha.com"
 
     def __init__(self, api_key: str):
@@ -125,15 +92,16 @@ class AntiCaptchaSolver(CaptchaSolverBase):
 
     async def solve_recaptcha_v2(self, site_key: str, page_url: str) -> str:
         async with httpx.AsyncClient(timeout=30) as client:
-            # 1. Cria a tarefa
             resp = await client.post(
                 f"{self.BASE_URL}/createTask",
                 json={
                     "clientKey": self.api_key,
                     "task": {
-                        "type": "NoCaptchaTaskProxyless",
+                        "type": "RecaptchaV2EnterpriseTaskProxyless",
                         "websiteURL": page_url,
                         "websiteKey": site_key,
+                        "isInvisible": True,
+                        "enterprisePayload": {"action": "login"},
                     },
                 },
             )
@@ -144,9 +112,6 @@ class AntiCaptchaSolver(CaptchaSolverBase):
                 raise CaptchaError(f"Anti-Captcha erro: {data}")
 
             task_id = data["taskId"]
-            logger.debug(f"Anti-Captcha — Task ID: {task_id}")
-
-            # 2. Polling
             elapsed = 0
             await asyncio.sleep(10)
 
@@ -159,10 +124,9 @@ class AntiCaptchaSolver(CaptchaSolverBase):
                 result_data = result.json()
 
                 if result_data.get("status") == "ready":
-                    logger.info("Anti-Captcha — Resolvido.")
                     return result_data["solution"]["gRecaptchaResponse"]
                 elif result_data.get("errorId") != 0:
-                    raise CaptchaError(f"Anti-Captcha erro na solução: {result_data}")
+                    raise CaptchaError(f"Anti-Captcha erro: {result_data}")
 
                 await asyncio.sleep(settings.CAPTCHA_POLL_INTERVAL_SECONDS)
                 elapsed += settings.CAPTCHA_POLL_INTERVAL_SECONDS
@@ -170,38 +134,117 @@ class AntiCaptchaSolver(CaptchaSolverBase):
             raise CaptchaTimeoutError(f"Anti-Captcha timeout após {settings.CAPTCHA_TIMEOUT_SECONDS}s")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CapSolver
-# ─────────────────────────────────────────────────────────────────────────────
+# ── CapSolver ─────────────────────────────────────────────────────────────────
 
 class CapSolverSolver(CaptchaSolverBase):
-    """Integração com a API do CapSolver."""
-
+    """
+    Integração com CapSolver — reCAPTCHA V2 Enterprise.
+    
+    Estratégia:
+    - COM proxy residencial BR → ReCaptchaV2EnterpriseTask (melhor score)
+    - SEM proxy → ReCaptchaV2EnterpriseTaskProxyless (fallback)
+    
+    Nota: o portal usa reCAPTCHA Enterprise *Invisível* (V2, não V3).
+    O pageAction='login' vai no enterprisePayload.
+    """
     BASE_URL = "https://api.capsolver.com"
 
     def __init__(self, api_key: str):
         self.api_key = api_key
 
+    def _has_proxy(self) -> bool:
+        return bool(settings.CAPTCHA_PROXY_ADDRESS and settings.CAPTCHA_PROXY_PORT)
+
+    def _build_proxy_string(self) -> str:
+        """Monta proxy no formato URL: http://user:pass@host:port"""
+        login = settings.CAPTCHA_PROXY_LOGIN or ""
+        password = settings.CAPTCHA_PROXY_PASSWORD or ""
+        host = settings.CAPTCHA_PROXY_ADDRESS
+        port = settings.CAPTCHA_PROXY_PORT
+        if login:
+            return f"http://{login}:{password}@{host}:{port}"
+        return f"http://{host}:{port}"
+
+    def _get_task_types(self) -> list[dict]:
+        """
+        Retorna lista de tasks para tentar em ordem.
+        Tenta V3 Enterprise primeiro, depois V2 Enterprise como fallback.
+        """
+        tasks = []
+        proxy_str = self._build_proxy_string() if self._has_proxy() else None
+
+        if proxy_str:
+            logger.info(f"CapSolver — Proxy: {settings.CAPTCHA_PROXY_ADDRESS}:{settings.CAPTCHA_PROXY_PORT}")
+            # Tentativa 1: V3 Enterprise com proxy
+            tasks.append({
+                "type": "ReCaptchaV3EnterpriseTask",
+                "proxy": proxy_str,
+                "pageAction": "login",
+            })
+            # Tentativa 2: V2 Enterprise com proxy
+            tasks.append({
+                "type": "ReCaptchaV2EnterpriseTask",
+                "proxy": proxy_str,
+                "pageAction": "login",
+                "isInvisible": True,
+            })
+        else:
+            tasks.append({
+                "type": "ReCaptchaV3EnterpriseTaskProxyLess",
+                "pageAction": "login",
+            })
+            tasks.append({
+                "type": "ReCaptchaV2EnterpriseTaskProxyless",
+                "pageAction": "login",
+                "isInvisible": True,
+            })
+
+        return tasks
+
     async def solve_recaptcha_v2(self, site_key: str, page_url: str) -> str:
+        task_variants = self._get_task_types()
+        last_error: Exception | None = None
+
+        for variant in task_variants:
+            task = {
+                **variant,
+                "websiteURL": page_url,
+                "websiteKey": site_key,
+            }
+            task_type = task["type"]
+            logger.info(f"CapSolver — Tentando: {task_type}")
+            logger.debug(f"CapSolver — Payload: {task}")
+
+            try:
+                token = await self._solve_task(task)
+                logger.info(f"CapSolver — Resolvido com {task_type}! Token length: {len(token)}")
+                return token
+            except CaptchaError as exc:
+                logger.warning(f"CapSolver — {task_type} falhou: {exc}")
+                last_error = exc
+                continue
+
+        raise CaptchaError(f"Todos os tipos falharam. Último erro: {last_error}")
+
+    async def _solve_task(self, task: dict) -> str:
+        """Envia uma task para o CapSolver e aguarda o resultado."""
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 f"{self.BASE_URL}/createTask",
                 json={
                     "clientKey": self.api_key,
-                    "task": {
-                        "type": "ReCaptchaV2TaskProxyLess",
-                        "websiteURL": page_url,
-                        "websiteKey": site_key,
-                    },
+                    "task": task,
                 },
             )
             resp.raise_for_status()
             data = resp.json()
 
             if data.get("errorId") != 0:
-                raise CaptchaError(f"CapSolver erro: {data}")
+                raise CaptchaError(f"CapSolver erro ao criar tarefa: {data}")
 
             task_id = data["taskId"]
+            logger.debug(f"CapSolver — Task ID: {task_id}")
+
             elapsed = 0
             await asyncio.sleep(5)
 
@@ -214,8 +257,9 @@ class CapSolverSolver(CaptchaSolverBase):
                 result_data = result.json()
 
                 if result_data.get("status") == "ready":
-                    logger.info("CapSolver — Resolvido.")
-                    return result_data["solution"]["gRecaptchaResponse"]
+                    token = result_data["solution"]["gRecaptchaResponse"]
+                    logger.info(f"CapSolver — Resolvido! Token length: {len(token)}")
+                    return token
                 elif result_data.get("errorId") != 0:
                     raise CaptchaError(f"CapSolver erro na solução: {result_data}")
 
@@ -225,12 +269,9 @@ class CapSolverSolver(CaptchaSolverBase):
             raise CaptchaTimeoutError(f"CapSolver timeout após {settings.CAPTCHA_TIMEOUT_SECONDS}s")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Factory com retry
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Factory + Retry ───────────────────────────────────────────────────────────
 
 def get_solver() -> CaptchaSolverBase:
-    """Retorna o solver configurado via variável de ambiente CAPTCHA_SERVICE."""
     solvers = {
         "2captcha": TwoCaptchaSolver,
         "anticaptcha": AntiCaptchaSolver,
@@ -243,12 +284,6 @@ def get_solver() -> CaptchaSolverBase:
 
 
 async def solve_with_retry(site_key: str, page_url: str) -> str:
-    """
-    Tenta resolver o captcha até CAPTCHA_MAX_RETRIES vezes.
-
-    Raises:
-        CaptchaError: Se todas as tentativas falharem.
-    """
     solver = get_solver()
     last_error: Optional[Exception] = None
 
@@ -263,7 +298,8 @@ async def solve_with_retry(site_key: str, page_url: str) -> str:
         except CaptchaError as exc:
             logger.error(f"Tentativa {attempt} — Erro: {exc}")
             last_error = exc
-            break  # Erros da API não se recuperam com retry
+            if attempt < settings.CAPTCHA_MAX_RETRIES:
+                await asyncio.sleep(3)  # Espera antes de retry
 
     raise CaptchaError(
         f"Captcha não resolvido após {settings.CAPTCHA_MAX_RETRIES} tentativas. Último erro: {last_error}"
