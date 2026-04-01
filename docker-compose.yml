@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: invoice-worker
+    restart: unless-stopped
+
+    # Carrega variáveis do .env local
+    env_file:
+      - .env
+
+    environment:
+      - BROWSER_HEADLESS=true
+      - LOG_LEVEL=DEBUG          # Mais verbose localmente
+      - POLL_INTERVAL_SECONDS=10
+
+    # Monta os logs para inspeção local
+    volumes:
+      - ./logs:/app/logs
+
+    # Recursos — ajustar conforme o plano do Railway
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G      # Chromium precisa de memória
+          cpus: "1.0"
+        reservations:
+          memory: 512M
