@@ -73,9 +73,19 @@ class AmazonasEnergiaHTTPExtractor:
                         "id_uc": uc["ID_UC"],
                     })
 
+            # Filtra UCs se o usuário selecionou específicas
+            selected_ucs = self.credentials.get("selected_ucs", [])
+            if selected_ucs:
+                selected_set = set(str(u) for u in selected_ucs)
+                clientes_ucs = [c for c in clientes_ucs if str(c["id_uc"]) in selected_set]
+                logger.info(f"[Task {self.task_id}] Filtrado para {len(clientes_ucs)} UC(s) selecionada(s).")
+
+            # Meses customizado (padrão: settings.MAX_INVOICES_MONTHS)
+            meses_limit = int(self.credentials.get("meses", settings.MAX_INVOICES_MONTHS))
+
             logger.info(
                 f"[Task {self.task_id}] Login OK! "
-                f"{len(clientes_ucs)} UC(s) encontrada(s)."
+                f"{len(clientes_ucs)} UC(s) | {meses_limit} meses"
             )
 
             # Headers autenticados
@@ -112,7 +122,7 @@ class AmazonasEnergiaHTTPExtractor:
                     f"{len(pagas)} pagas + {len(abertas)} abertas"
                 )
 
-                faturas = abertas + pagas[:settings.MAX_INVOICES_MONTHS]
+                faturas = abertas + pagas[:meses_limit]
 
                 for fatura in faturas:
                     pdf = await self._download_fatura(

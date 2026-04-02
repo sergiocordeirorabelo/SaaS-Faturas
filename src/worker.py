@@ -72,16 +72,15 @@ async def process_task(db: SupabaseClient, task: dict) -> None:
 
 async def auto_reextract(db: SupabaseClient) -> None:
     """
-    Cron automático: verifica clientes que precisam de re-extração.
-    Cria novas tarefas para clientes cuja última extração foi há mais de 24h.
+    Cron automático: verifica clientes MONITORADOS que precisam de re-extração.
+    Só re-extrai clientes com monitorar=true e última extração há mais de 24h.
     """
-    logger.info("Cron: verificando clientes para re-extração automática...")
+    logger.info("Cron: verificando clientes monitorados...")
 
     try:
         loop = asyncio.get_event_loop()
 
         def _query():
-            # Busca todas as tarefas concluídas
             result = (
                 db._client.table("extraction_requests")
                 .select("id,credentials,created_at,concessionaria")
@@ -93,11 +92,12 @@ async def auto_reextract(db: SupabaseClient) -> None:
 
         tasks = await loop.run_in_executor(None, _query)
 
-        # Agrupa por CPF — pega só a mais recente de cada
+        # Agrupa por CPF — pega só a mais recente de cada (apenas monitorados)
         latest_by_cpf = {}
         for t in tasks:
-            cpf = t.get("credentials", {}).get("cpf_cnpj", "")
-            if cpf and cpf not in latest_by_cpf:
+            creds = t.get("credentials", {})
+            cpf = creds.get("cpf_cnpj", "")
+            if cpf and cpf not in latest_by_cpf and creds.get("monitorar"):
                 latest_by_cpf[cpf] = t
 
         now = datetime.now(timezone.utc)
@@ -107,18 +107,28 @@ async def auto_reextract(db: SupabaseClient) -> None:
             created_at = datetime.fromisoformat(t["created_at"].replace("Z", "+00:00"))
             hours_ago = (now - created_at).total_seconds() / 3600
 
-            # Se última extração foi há mais de 24h, cria nova tarefa
             if hours_ago > 24:
-                senha = t.get("credentials", {}).get("senha", "")
+                creds = t.get("credentials", {})
+                senha = creds.get("senha", "")
                 if not senha:
                     continue
 
-                def _insert(cpf=cpf, senha=senha, conc=t["concessionaria"]):
+                # Mantém as configurações originais (meses, UCs, monitorar)
+                new_creds = {
+                    "cpf_cnpj": cpf,
+                    "senha": senha,
+                    "meses": creds.get("meses", 12),
+                    "monitorar": True,
+                }
+                if creds.get("selected_ucs"):
+                    new_creds["selected_ucs"] = creds["selected_ucs"]
+
+                def _insert(creds=new_creds, conc=t["concessionaria"]):
                     db._client.table("extraction_requests").insert({
                         "concessionaria": conc,
-                        "credentials": {"cpf_cnpj": cpf, "senha": senha},
+                        "credentials": creds,
                         "status": "pendente",
-                        "status_detail": "Re-extração automática diária.",
+                        "status_detail": "Re-extração automática (monitoramento).",
                     }).execute()
 
                 await loop.run_in_executor(None, _insert)
@@ -128,9 +138,9 @@ async def auto_reextract(db: SupabaseClient) -> None:
                 await asyncio.sleep(random.uniform(0.5, 2.0))
 
         if created_count > 0:
-            logger.info(f"Cron: {created_count} tarefa(s) de re-extração criada(s).")
+            logger.info(f"Cron: {created_count} tarefa(s) de monitoramento criada(s).")
         else:
-            logger.info("Cron: todos os clientes estão atualizados.")
+            logger.info("Cron: todos os clientes monitorados estão atualizados.")
 
     except Exception as exc:
         logger.error(f"Cron: erro na verificação: {exc}", exc_info=True)
