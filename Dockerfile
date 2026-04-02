@@ -13,6 +13,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Código
 COPY src/ src/
-COPY .env .env
 
 CMD ["python", "-m", "src.worker"]
