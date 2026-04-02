@@ -63,13 +63,19 @@ async def process_task(db: SupabaseClient, task: dict) -> None:
     except Exception as exc:
         error_msg = str(exc)
 
-        # Detecta JWT expirado
-        if "401" in error_msg or "expirado" in error_msg.lower():
+        # Detecta credenciais inválidas ou JWT expirado
+        if "inválid" in error_msg.lower() or "invalida" in error_msg.lower():
             await db.update_task_status(
                 task_id, "credenciais_invalidas",
-                "JWT expirado. Necessário re-autenticar no portal."
+                "CPF ou senha inválidos."
             )
-            logger.warning(f"[Task {task_id}] JWT expirado — marcado para re-autenticação.")
+            logger.warning(f"[Task {task_id}] Credenciais inválidas.")
+        elif "401" in error_msg or "expirado" in error_msg.lower():
+            await db.update_task_status(
+                task_id, "credenciais_invalidas",
+                "Sessão expirada. Tente novamente."
+            )
+            logger.warning(f"[Task {task_id}] JWT expirado.")
         else:
             logger.exception(f"[Task {task_id}] Erro inesperado: {exc}")
             await db.update_task_status(task_id, "erro_extracao", error_msg[:500])
