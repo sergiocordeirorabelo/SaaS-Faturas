@@ -235,6 +235,8 @@ class SupabaseClient:
             logger.debug(f"[Fase3] Texto salvo para fatura_id={fatura_id}")
         except Exception as exc:
             logger.error(f"[Fase3] Erro ao salvar texto: {exc}")
+
+    async def save_fatura_analise(
         self,
         fatura_id: str,
         analise: dict,
