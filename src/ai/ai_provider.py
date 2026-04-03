@@ -2,11 +2,6 @@
 AI Provider — Fase 3
 Gera texto enriquecido de análise em linguagem natural.
 Suporta OpenAI (padrão) e Claude via variável AI_PROVIDER.
-
-Variáveis de ambiente necessárias:
-  AI_PROVIDER   = openai | claude        (padrão: openai)
-  OPENAI_API_KEY  = sk-...               (se AI_PROVIDER=openai)
-  ANTHROPIC_API_KEY = sk-ant-...         (se AI_PROVIDER=claude)
 """
 
 from __future__ import annotations
@@ -23,27 +18,35 @@ AI_PROVIDER    = os.getenv("AI_PROVIDER", "openai").lower()
 OPENAI_KEY     = os.getenv("OPENAI_API_KEY", "")
 ANTHROPIC_KEY  = os.getenv("ANTHROPIC_API_KEY", "")
 
-# Modelos padrão — baratos e suficientes para geração de texto
 OPENAI_MODEL    = os.getenv("AI_MODEL", "gpt-4o-mini")
 ANTHROPIC_MODEL = os.getenv("AI_MODEL", "claude-haiku-4-5-20251001")
 
 
+def _f(v, default=0):
+    """Retorna float seguro — converte None para default."""
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
 def _prompt_analise(fatura: dict, analise: dict) -> str:
-    """Monta o prompt com os dados já calculados pelo analyzer."""
     alertas = analise.get("alertas", [])
-    criticos = [a for a in alertas if a["severidade"] == "critico"]
-    atencao  = [a for a in alertas if a["severidade"] == "atencao"]
+    criticos = [a for a in alertas if a.get("severidade") == "critico"]
+    atencao  = [a for a in alertas if a.get("severidade") == "atencao"]
 
     alertas_txt = ""
     for a in criticos + atencao:
-        alertas_txt += f"- {a['titulo']}: {a['descricao']}"
+        alertas_txt += f"- {a.get('titulo','')}: {a.get('descricao','')}"
         if a.get("acao_recomendada"):
             alertas_txt += f" Ação recomendada: {a['acao_recomendada']}"
         alertas_txt += "\n"
 
     return f"""Você é um especialista em eficiência energética para indústrias e comércios do Grupo A (alta tensão) no Brasil.
 
-Com base nos dados abaixo, escreva um parágrafo executivo claro e direto para o cliente final. 
+Com base nos dados abaixo, escreva um parágrafo executivo claro e direto para o cliente final.
 Use linguagem simples, sem jargão técnico. Destaque a economia em reais. Seja objetivo.
 Máximo 5 linhas.
 
@@ -51,12 +54,12 @@ DADOS DA FATURA:
 - Cliente: {fatura.get("cliente_nome", "N/D")}
 - UC: {fatura.get("uc")} | Mês: {fatura.get("mes_referencia")}
 - Modalidade: {fatura.get("modalidade")} | Subgrupo: {fatura.get("subgrupo")}
-- Total da fatura: R$ {analise.get("total_fatura", 0):,.2f}
-- Consumo total: {fatura.get("consumo_total_kwh", 0):,.0f} kWh
-- Demanda contratada: {fatura.get("demanda_contratada_fora_ponta_kw", 0):.0f} kW
-- Demanda medida: {fatura.get("demanda_medida_fora_ponta_kw", 0):.0f} kW
+- Total da fatura: R$ {_f(analise.get("total_fatura")):,.2f}
+- Consumo total: {_f(fatura.get("consumo_total_kwh")):,.0f} kWh
+- Demanda contratada: {_f(fatura.get("demanda_contratada_fora_ponta_kw")):.0f} kW
+- Demanda medida: {_f(fatura.get("demanda_medida_fora_ponta_kw")):.0f} kW
 - Score de eficiência: {analise.get("score_eficiencia")}/100
-- Economia potencial: R$ {analise.get("potencial_economia_mensal", 0):,.2f}/mês · R$ {analise.get("potencial_economia_anual", 0):,.2f}/ano
+- Economia potencial: R$ {_f(analise.get("potencial_economia_mensal")):,.2f}/mês · R$ {_f(analise.get("potencial_economia_anual")):,.2f}/ano
 
 PROBLEMAS IDENTIFICADOS:
 {alertas_txt if alertas_txt else "Nenhuma anomalia significativa encontrada."}
@@ -68,11 +71,6 @@ async def gerar_analise_textual(
     fatura: dict,
     analise: dict,
 ) -> Optional[str]:
-    """
-    Recebe o dict do parser e o dict do analyzer,
-    retorna um parágrafo executivo em linguagem natural.
-    Erros são logados e retornam None — nunca interrompem o fluxo.
-    """
     if AI_PROVIDER == "openai":
         return await _openai(fatura, analise)
     elif AI_PROVIDER == "claude":
