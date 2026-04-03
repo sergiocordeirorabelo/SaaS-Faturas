@@ -34,6 +34,17 @@ except ImportError:
         "Parse e análise desativados."
     )
 
+# ── Importa Fase 3 ────────────────────────────────────────────────────────────
+try:
+    from src.ai.ai_provider import gerar_analise_textual
+    FASE3_DISPONIVEL = True
+except ImportError:
+    FASE3_DISPONIVEL = False
+    logging.getLogger(__name__).warning(
+        "ai_provider não encontrado em src/ai/. "
+        "Geração de texto desativada."
+    )
+
 logger = setup_logger(__name__)
 
 API_URL = "https://api-agencia.amazonasenergia.com"
@@ -384,6 +395,13 @@ class AmazonasEnergiaHTTPExtractor:
                 f"[Fase2] ✓ UC {uc} {mes} | score={score} | "
                 f"economia potencial=R${economia:,.0f}/ano"
             )
+
+            # Fase 3 — texto executivo em linguagem natural via IA
+            if FASE3_DISPONIVEL:
+                texto = await gerar_analise_textual(parsed, analise)
+                if texto:
+                    await self.db.save_analise_textual(fatura_id, texto)
+                    logger.info(f"[Fase3] ✓ Texto gerado para UC {uc} {mes}")
 
         except Exception as exc:
             # Nunca interrompe o fluxo de download

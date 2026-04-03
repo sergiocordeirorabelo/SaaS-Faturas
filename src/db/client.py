@@ -217,7 +217,24 @@ class SupabaseClient:
             logger.error(f"[Parsed] Erro ao salvar faturas_parsed: {exc}")
             return None
 
-    async def save_fatura_analise(
+    async def save_analise_textual(
+        self,
+        fatura_id: str,
+        texto: str,
+    ) -> None:
+        """Grava o texto executivo gerado pela IA na tabela faturas_analise."""
+        loop = asyncio.get_event_loop()
+
+        def _update():
+            self._client.table(TABLE_ANALISE).update(
+                {"analise_claude": texto}
+            ).eq("fatura_id", fatura_id).execute()
+
+        try:
+            await loop.run_in_executor(None, _update)
+            logger.debug(f"[Fase3] Texto salvo para fatura_id={fatura_id}")
+        except Exception as exc:
+            logger.error(f"[Fase3] Erro ao salvar texto: {exc}")
         self,
         fatura_id: str,
         analise: dict,
