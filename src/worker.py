@@ -1,7 +1,7 @@
 """
 Worker Principal — Invoice Extraction Worker (HTTP + Cron)
 Faz polling de tarefas + verificação diária automática de novos clientes.
-Sem browser, sem captcha — login via API mobile.
+Também serve a API HTTP para geração de PDFs na porta 8080.
 """
 
 import asyncio
@@ -31,7 +31,6 @@ def _handle_signal(sig, frame):
 
 
 async def process_task(db: SupabaseClient, task: dict) -> None:
-    """Processa uma única tarefa de extração."""
     task_id = task["id"]
     concessionaria = task.get("concessionaria", "amazonas_energia")
     logger.info(f"[Task {task_id}] Iniciando extração | {concessionaria}")
@@ -71,10 +70,6 @@ async def process_task(db: SupabaseClient, task: dict) -> None:
 
 
 async def auto_reextract(db: SupabaseClient) -> None:
-    """
-    Cron automático: verifica clientes MONITORADOS que precisam de re-extração.
-    Só re-extrai clientes com monitorar=true e última extração há mais de 24h.
-    """
     logger.info("Cron: verificando clientes monitorados...")
 
     try:
@@ -92,7 +87,6 @@ async def auto_reextract(db: SupabaseClient) -> None:
 
         tasks = await loop.run_in_executor(None, _query)
 
-        # Agrupa por CPF — pega só a mais recente de cada (apenas monitorados)
         latest_by_cpf = {}
         for t in tasks:
             creds = t.get("credentials", {})
@@ -113,7 +107,6 @@ async def auto_reextract(db: SupabaseClient) -> None:
                 if not senha:
                     continue
 
-                # Mantém as configurações originais (meses, UCs, monitorar)
                 new_creds = {
                     "cpf_cnpj": cpf,
                     "senha": senha,
@@ -133,8 +126,6 @@ async def auto_reextract(db: SupabaseClient) -> None:
 
                 await loop.run_in_executor(None, _insert)
                 created_count += 1
-
-                # Jitter entre criações para não sobrecarregar
                 await asyncio.sleep(random.uniform(0.5, 2.0))
 
         if created_count > 0:
@@ -147,15 +138,23 @@ async def auto_reextract(db: SupabaseClient) -> None:
 
 
 async def run_worker() -> None:
-    """Loop principal: polling de tarefas + cron diário."""
+    """Loop principal: polling + cron + servidor HTTP."""
     db = SupabaseClient()
     logger.info(
         f"Worker HTTP iniciado | Polling: {settings.POLL_INTERVAL_SECONDS}s | "
         f"Concorrência: {settings.MAX_CONCURRENT_TASKS}"
     )
 
+    # ── Servidor HTTP para geração de PDFs ────────────────────────────────
+    try:
+        from src.api import start_api_server
+        await start_api_server(port=8080)
+        logger.info("[API] Servidor de PDFs ativo na porta 8080")
+    except Exception as exc:
+        logger.warning(f"[API] Servidor HTTP não iniciado: {exc}")
+
     semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_TASKS)
-    last_cron = datetime.min  # Força cron na primeira execução
+    last_cron = datetime.min
 
     async def bounded_process(task):
         async with semaphore:
@@ -163,13 +162,11 @@ async def run_worker() -> None:
 
     while not _shutdown_event.is_set():
         try:
-            # ── Cron: re-extração automática a cada 6 horas ──────────────
             now = datetime.now()
             if (now - last_cron).total_seconds() > 6 * 3600:
                 await auto_reextract(db)
                 last_cron = now
 
-            # ── Polling: processa tarefas pendentes ──────────────────────
             tasks = await db.fetch_pending_tasks(limit=settings.MAX_CONCURRENT_TASKS)
 
             if tasks:
