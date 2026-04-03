@@ -120,16 +120,24 @@ class AnalisadorFatura:
     # ── Regras ────────────────────────────────────────────────────────────
 
     def _check_demanda_superdimensionada(self, f: dict, r: ResultadoAnalise) -> None:
-        """Demanda contratada muito acima da medida → cliente paga pelo que não usa."""
-        ctda = f.get("demanda_contratada_fora_ponta_kw")
-        medi = f.get("demanda_medida_fora_ponta_kw")
-        tar  = f.get("tarifa_demanda")
+        """
+        Demanda contratada muito acima da medida → cliente paga pelo que não usa.
+
+        Usa o pico histórico de 13 meses para calcular a redução segura:
+        - Estima a demanda de pico proporcional ao maior consumo histórico
+        - Recomenda contratar 110% do pico estimado (margem de segurança)
+        - Assim evita ultrapassagem nos meses de maior carga
+        """
+        ctda      = f.get("demanda_contratada_fora_ponta_kw")
+        medi      = f.get("demanda_medida_fora_ponta_kw")
+        tar       = f.get("tarifa_demanda")
+        historico = f.get("historico_kwh") or []
+        consumo   = f.get("consumo_total_kwh") or 0
 
         if not all([ctda, medi, tar]):
             return
 
         utilizacao = medi / ctda
-        excesso_kw = ctda - medi
 
         if utilizacao < UTILIZ_DEMANDA_CRITICA:
             severidade = "critico"
@@ -138,27 +146,63 @@ class AnalisadorFatura:
         else:
             return
 
-        # Economia: reduzir contratada para 110% da medida (margem de segurança)
-        nova_ctda = round(medi * 1.10)
-        reducao_kw = ctda - nova_ctda
+        # ── Cálculo da demanda de pico histórica ──────────────────────────
+        # Princípio: demanda é proporcional ao consumo no mesmo mês.
+        # Se temos a razão demanda/consumo do mês atual, aplicamos ao pico
+        # histórico para estimar qual foi a maior demanda nos últimos 13 meses.
+        #
+        # Exemplo SEBRAE AM:
+        #   medi=142 kW, consumo=31.692 kWh → ratio=0,00448 kW/kWh
+        #   pico_historico=41.517 kWh (julho) → dem_pico_est=186 kW
+        #   nova_ctda = 186 × 1,10 = 205 kW (seguro)
+        #   vs. 142 × 1,10 = 156 kW (arriscado no verão)
+
+        if historico and consumo and consumo > 0:
+            ratio_dem_kwh  = medi / consumo          # kW por kWh do mês atual
+            pico_consumo   = max(historico)
+            dem_pico_est   = ratio_dem_kwh * pico_consumo
+            nova_ctda      = round(dem_pico_est * 1.10)  # 110% do pico estimado
+            usando_pico    = True
+            aviso_pico     = (
+                f"O maior consumo histórico foi {pico_consumo:,.0f} kWh, "
+                f"com demanda de pico estimada em {dem_pico_est:.0f} kW. "
+                f"A redução recomendada considera esse pico para evitar ultrapassagem."
+            )
+        else:
+            # Sem histórico: usa apenas o mês atual com margem maior (120%)
+            nova_ctda   = round(medi * 1.20)
+            usando_pico = False
+            aviso_pico  = (
+                "Sem histórico suficiente para estimar pico de demanda. "
+                "Margem de segurança ampliada para 20%."
+            )
+
+        # Se a nova contratada recomendada já for >= contratada atual, não há ganho
+        if nova_ctda >= ctda:
+            return
+
+        reducao_kw      = ctda - nova_ctda
         economia_mensal = reducao_kw * tar
         economia_anual  = economia_mensal * 12
+        excesso_kw      = ctda - medi
 
         r.alertas.append(Alerta(
             codigo="DEMANDA_SUPERDIMENSIONADA",
             severidade=severidade,
             titulo=f"Demanda contratada superdimensionada ({utilizacao:.0%} de utilização)",
             descricao=(
-                f"A demanda contratada é {ctda:.0f} kW, mas a demanda medida foi apenas "
-                f"{medi:.0f} kW ({utilizacao:.0%} de utilização). "
-                f"O excesso de {excesso_kw:.0f} kW representa custo sem contrapartida."
+                f"A demanda contratada é {ctda:.0f} kW, mas a demanda medida foi "
+                f"{medi:.0f} kW neste mês ({utilizacao:.0%} de utilização). "
+                f"O excesso de {excesso_kw:.0f} kW representa custo sem contrapartida. "
+                f"{aviso_pico}"
             ),
             economia_mensal_r=economia_mensal,
             economia_anual_r=economia_anual,
             acao_recomendada=(
-                f"Solicitar redução da demanda contratada de {ctda:.0f} kW para "
-                f"{nova_ctda:.0f} kW junto à Amazonas Energia. "
-                f"Permitido 1 ajuste por ciclo tarifário (normalmente anual)."
+                f"Reduzir a demanda contratada de {ctda:.0f} kW para {nova_ctda:.0f} kW "
+                f"({'baseado no pico histórico de 13 meses' if usando_pico else 'estimativa conservadora sem histórico'}). "
+                f"Economia estimada: R$ {economia_mensal:,.2f}/mês · R$ {economia_anual:,.2f}/ano. "
+                f"Permitido 1 ajuste por ciclo tarifário junto à Amazonas Energia."
             ),
         ))
 
