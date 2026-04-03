@@ -51,12 +51,22 @@ async def handle_relatorio_fatura(request: web.Request) -> web.Response:
         loop = asyncio.get_event_loop()
 
         def _buscar():
-            # Busca dados da fatura parseada
+            # Tenta primeiro buscar por id em faturas_parsed
             r = db._client.table("faturas_parsed").select(
                 "*, faturas_analise(score_eficiencia, potencial_economia_mensal, "
                 "potencial_economia_anual, resumo_executivo, alertas, analise_claude)"
-            ).eq("id", fatura_id).single().execute()
-            return r.data
+            ).eq("id", fatura_id).execute()
+
+            if r.data:
+                return r.data[0]
+
+            # Se não encontrar, tenta buscar via faturas_analise.fatura_id
+            r2 = db._client.table("faturas_parsed").select(
+                "*, faturas_analise(score_eficiencia, potencial_economia_mensal, "
+                "potencial_economia_anual, resumo_executivo, alertas, analise_claude)"
+            ).eq("faturas_analise.id", fatura_id).execute()
+
+            return r2.data[0] if r2.data else None
 
         dados_raw = await loop.run_in_executor(None, _buscar)
 
