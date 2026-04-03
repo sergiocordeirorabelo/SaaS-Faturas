@@ -267,7 +267,7 @@ def _alertas_table(alertas: list) -> Table:
         ]))
 
         eco_str = f"<font color='#059669'><b>R$ {eco:,.2f}/mes</b></font>".replace(",",".") if eco and eco > 0 else ""
-        desc = Paragraph(f"<b>{titulo}</b><br/>{eco_str}<br/><font color='#6b7280'>{acao[:120]}</font>", 
+        desc = Paragraph(f"<b>{titulo}</b><br/>{eco_str}<br/><font color='#6b7280'>{acao[:300]}</font>", 
                          ParagraphStyle("d", fontName="Helvetica", fontSize=8.5, leading=13, alignment=TA_JUSTIFY))
 
         rows.append([badge, desc])
@@ -492,6 +492,8 @@ def gerar_relatorio(dados: dict, output_path: Optional[str | Path] = None) -> by
         story.append(Spacer(1, 5*mm))
 
     # ── Proposta ──────────────────────────────────────────────────────────────
+    from reportlab.platypus import PageBreak
+    story.append(PageBreak())
     story += _sec("Proposta comercial")
     story.append(_proposta_table(d))
 
