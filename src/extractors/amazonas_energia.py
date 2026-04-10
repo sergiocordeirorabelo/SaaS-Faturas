@@ -1,4 +1,4 @@
-"""
+﻿"""
 Extrator Amazonas Energia — versão FINAL com fatura detalhada.
 Login via API mobile (sem captcha) + download detalhada via email.
 """
@@ -60,7 +60,7 @@ class AmazonasEnergiaHTTPExtractor:
         # Senha do PDF = 5 primeiros dígitos do CPF/CNPJ
         pdf_password = cpf[:5]
 
-        async with httpx.AsyncClient(base_url=API_URL, timeout=httpx.Timeout(90.0, connect=30.0)) as client:
+        async with httpx.AsyncClient(base_url=API_URL, timeout=httpx.Timeout(120.0, connect=30.0)) as client:
             # 1. Login
             jwt, clientes = await self._login(client, cpf, senha)
 
