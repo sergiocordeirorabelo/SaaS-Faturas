@@ -399,3 +399,5 @@ class AmazonasEnergiaHTTPExtractor:
         except Exception as exc:
             logger.error(f"[Task {self.task_id}] Erro download {mes_ano}: {exc}")
             return None
+#   r e b u i l d  
+ 
