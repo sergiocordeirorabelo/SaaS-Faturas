@@ -257,6 +257,9 @@ async def handle_analise_uc(request: web.Request) -> web.Response:
         )
 
         openai_key = os.environ.get("OPENAI_API_KEY", "")
+        if not openai_key:
+            return web.json_response({"error": "OPENAI_API_KEY não configurada"}, status=500)
+
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 "https://api.openai.com/v1/chat/completions",
@@ -268,6 +271,10 @@ async def handle_analise_uc(request: web.Request) -> web.Response:
                 }
             )
             data = resp.json()
+            if "error" in data:
+                raise Exception(f"OpenAI error: {data['error'].get('message','unknown')}")
+            if "choices" not in data or not data["choices"]:
+                raise Exception(f"OpenAI resposta inesperada: {str(data)[:200]}")
             text = data["choices"][0]["message"]["content"]
 
         logger.info(f"[API] Análise gerada para UC {uc} — {len(text)} chars")
