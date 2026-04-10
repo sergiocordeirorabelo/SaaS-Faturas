@@ -109,12 +109,15 @@ def _card_metric(label: str, value: str, sub: str, value_style="value") -> Table
 
 
 def _metricas(d: dict) -> Table:
-    score  = d.get("score_eficiencia") or 100
-    eco_m  = d.get("potencial_economia_mensal") or 0
-    eco_a  = d.get("potencial_economia_anual") or 0
-    total  = d.get("total_a_pagar") or 0
-    ctda   = d.get("demanda_contratada_fora_ponta_kw") or 0
-    medi   = d.get("demanda_medida_fora_ponta_kw") or 0
+    def _f(v, default=0):
+        try: return float(v) if v is not None else default
+        except: return default
+    score  = _f(d.get("score_eficiencia"), 100)
+    eco_m  = _f(d.get("potencial_economia_mensal"))
+    eco_a  = _f(d.get("potencial_economia_anual"))
+    total  = _f(d.get("total_a_pagar"))
+    ctda   = _f(d.get("demanda_contratada_fora_ponta_kw"))
+    medi   = _f(d.get("demanda_medida_fora_ponta_kw"))
     util   = round(medi / ctda * 100) if ctda > 0 else 0
 
     def fmt(v): return f"R$ {v:,.0f}".replace(",",".")
@@ -163,11 +166,19 @@ def _make_card(label, value, sub, vstyle, cw) -> Table:
 
 # ── Barras de demanda ─────────────────────────────────────────────────────────
 def _demanda_table(d: dict) -> Table:
-    ctda = d.get("demanda_contratada_fora_ponta_kw") or 0
-    medi = d.get("demanda_medida_fora_ponta_kw") or 0
-    hist = d.get("historico_kwh") or []
-    cons = d.get("consumo_total_kwh") or 1
-    tar  = d.get("tarifa_demanda") or 22.96
+    def _f(v, default=0):
+        try: return float(v) if v is not None else default
+        except: return default
+    ctda = _f(d.get("demanda_contratada_fora_ponta_kw"))
+    medi = _f(d.get("demanda_medida_fora_ponta_kw"))
+    hist_raw = d.get("historico_kwh") or []
+    if isinstance(hist_raw, str):
+        import json as _json
+        try: hist_raw = _json.loads(hist_raw)
+        except: hist_raw = []
+    hist = [float(x) for x in hist_raw if x]
+    cons = _f(d.get("consumo_total_kwh"), 1) or 1
+    tar  = _f(d.get("tarifa_demanda"), 22.96) or 22.96
 
     ratio = medi / cons if cons > 0 else 0
     pico  = round(ratio * max(hist)) if hist else medi
@@ -288,11 +299,14 @@ def _alertas_table(alertas: list) -> Table:
 
 # ── Proposta ──────────────────────────────────────────────────────────────────
 def _proposta_table(d: dict) -> Table:
-    eco_a  = d.get("potencial_economia_anual") or 0
-    eco_m  = d.get("potencial_economia_mensal") or 0
-    hon_a  = round(eco_a * 0.30)   # 30%
+    def _f(v, default=0):
+        try: return float(v) if v is not None else default
+        except: return default
+    eco_a  = _f(d.get("potencial_economia_anual"))
+    eco_m  = _f(d.get("potencial_economia_mensal"))
+    hon_a  = round(eco_a * 0.30)
     hon_m  = round(eco_m * 0.30)
-    ctda   = d.get("demanda_contratada_fora_ponta_kw") or 0
+    ctda   = _f(d.get("demanda_contratada_fora_ponta_kw"))
     modelo = d.get("modelo_recomendado") or "consultoria"
 
     def fmt(v): return f"R$ {v:,.0f}".replace(",",".")
