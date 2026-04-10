@@ -1,4 +1,4 @@
-"""
+﻿"""
 Extrator Amazonas Energia — versão FINAL com fatura detalhada.
 Login via API mobile (sem captcha) + download detalhada via email.
 """
@@ -399,5 +399,6 @@ class AmazonasEnergiaHTTPExtractor:
         except Exception as exc:
             logger.error(f"[Task {self.task_id}] Erro download {mes_ano}: {exc}")
             return None
-#   r e b u i l d  
+#   r e b u i l d 
+ 
  
