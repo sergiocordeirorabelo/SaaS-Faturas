@@ -159,19 +159,39 @@ async def run_worker() -> None:
     )
 
     semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_TASKS)
-    last_cron = datetime.min  # Força cron na primeira execução
 
     async def bounded_process(task):
         async with semaphore:
             await process_task(db, task)
 
+    async def _deve_rodar_cron() -> bool:
+        """Checa no Supabase se o cron rodou nas últimas 20h — evita loop em redeploy."""
+        try:
+            loop = asyncio.get_event_loop()
+            def _check():
+                from datetime import timezone
+                result = db._client.table("extraction_requests") \
+                    .select("created_at") \
+                    .like("status_detail", "Re-extração automática%") \
+                    .order("created_at", desc=True) \
+                    .limit(1) \
+                    .execute()
+                if result.data:
+                    last = datetime.fromisoformat(result.data[0]["created_at"].replace("Z", "+00:00"))
+                    hours = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+                    logger.debug(f"Cron: última re-extração há {hours:.1f}h")
+                    return hours > 20
+                return True
+            return await loop.run_in_executor(None, _check)
+        except Exception as exc:
+            logger.warning(f"Cron: erro ao checar horário: {exc}")
+            return False
+
     while not _shutdown_event.is_set():
         try:
-            # ── Cron: re-extração automática a cada 6 horas ──────────────
-            now = datetime.now()
-            if (now - last_cron).total_seconds() > 6 * 3600:
+            # ── Cron: re-extração automática — checa no banco ──────────────
+            if await _deve_rodar_cron():
                 await auto_reextract(db)
-                last_cron = now
 
             # ── Polling: processa tarefas pendentes ──────────────────────
             tasks = await db.fetch_pending_tasks(limit=settings.MAX_CONCURRENT_TASKS)
