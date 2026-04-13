@@ -30,6 +30,93 @@ def _handle_signal(sig, frame):
     _shutdown_event.set()
 
 
+async def _parse_and_analyze(db: SupabaseClient, task_id: str, pdfs: list, task: dict) -> None:
+    """Faz parse e análise IA de cada PDF extraído, salvando em faturas_parsed e faturas_analise."""
+    import asyncio
+    from pathlib import Path
+    from src.parsers.parser_fatura import parse_pdf
+    from src.parsers.analyzer_fatura import analisar_fatura
+    from src.ai.ai_provider import gerar_analise_textual
+
+    loop = asyncio.get_event_loop()
+    credentials = task.get("credentials", {})
+    cliente_nome = None
+
+    for pdf_info in pdfs:
+        try:
+            storage_url = pdf_info.get("storage_url", "")
+            uc = str(pdf_info.get("uc", ""))
+            mes_ref = pdf_info.get("mes_referencia", "")
+            tipo = pdf_info.get("tipo", "")
+
+            if tipo != "detalhada":
+                continue  # Só processa faturas detalhadas
+
+            # Baixa PDF do Supabase Storage
+            storage_path = f"faturas/{uc}/{mes_ref.replace('/', '-')}_detalhada.pdf"
+            tmp_path = Path(f"/tmp/parse_{task_id}_{uc}_{mes_ref.replace('/', '-')}.pdf")
+
+            def _download():
+                data = db._client.storage.from_(settings.SUPABASE_BUCKET).download(storage_path)
+                return data
+
+            try:
+                pdf_bytes = await loop.run_in_executor(None, _download)
+                tmp_path.write_bytes(pdf_bytes)
+            except Exception as dl_exc:
+                logger.warning(f"[Parse] Erro ao baixar do storage {storage_path}: {dl_exc}")
+                continue
+
+            # Parse
+            def _parse():
+                return parse_pdf(str(tmp_path))
+
+            dados_fatura = await loop.run_in_executor(None, _parse)
+            tmp_path.unlink(missing_ok=True)
+
+            if not dados_fatura.get("uc"):
+                dados_fatura["uc"] = uc
+            if not dados_fatura.get("mes_referencia"):
+                dados_fatura["mes_referencia"] = mes_ref
+
+            dados_fatura["extraction_id"] = task_id
+            if cliente_nome is None and dados_fatura.get("cliente_nome"):
+                cliente_nome = dados_fatura["cliente_nome"]
+
+            # Salva fatura parseada
+            fatura_id = await db.save_fatura_parsed(dados_fatura)
+            if not fatura_id:
+                logger.warning(f"[Parse] Falha ao salvar fatura UC {uc} {mes_ref}")
+                continue
+
+            logger.info(f"[Parse] ✓ UC {uc} {mes_ref} salvo (id={fatura_id})")
+
+            # Análise
+            def _analisar():
+                return analisar_fatura(dados_fatura)
+
+            analise_dict = await loop.run_in_executor(None, _analisar)
+            analise_dict["fatura_id"] = fatura_id
+            analise_dict["uc"] = uc
+
+            # Gera texto IA
+            try:
+                texto_ia = await gerar_analise_textual(dados_fatura, analise_dict)
+                if texto_ia:
+                    analise_dict["analise_claude"] = texto_ia
+            except Exception as e:
+                logger.warning(f"[IA] Texto não gerado para UC {uc}: {e}")
+
+            await db.save_fatura_analise(analise_dict)
+            logger.info(f"[Análise] ✓ UC {uc} {mes_ref} analisado (score={analise_dict.get('score_eficiencia')})")
+
+        except Exception as exc:
+            logger.error(f"[Parse] Erro UC {pdf_info.get('uc')} {pdf_info.get('mes_referencia')}: {exc}", exc_info=True)
+
+    if cliente_nome:
+        logger.info(f"[Parse] Cliente identificado: {cliente_nome}")
+
+
 async def process_task(db: SupabaseClient, task: dict) -> None:
     """Processa uma única tarefa de extração."""
     task_id = task["id"]
@@ -54,6 +141,10 @@ async def process_task(db: SupabaseClient, task: dict) -> None:
                 pdf_links=pdfs,
             )
             logger.info(f"[Task {task_id}] ✓ Concluído com {len(pdfs)} faturas.")
+
+            # ── Parse + Análise de cada PDF ───────────────────────────────
+            await _parse_and_analyze(db, task_id, pdfs, task)
+
         else:
             await db.update_task_status(task_id, "erro_extracao", "Nenhuma fatura encontrada.")
 
