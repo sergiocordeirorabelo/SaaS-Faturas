@@ -11,10 +11,13 @@ import signal
 import sys
 from datetime import datetime, timezone, timedelta
 
+import os
+
 from src.db.client import SupabaseClient
 from src.extractors.amazonas_energia import AmazonasEnergiaHTTPExtractor
 from src.utils.logger import setup_logger
 from src.config import settings
+from src.api import start_api_server
 
 logger = setup_logger(__name__)
 
@@ -244,6 +247,11 @@ async def auto_reextract(db: SupabaseClient) -> None:
 async def run_worker() -> None:
     """Loop principal: polling de tarefas + cron diário."""
     db = SupabaseClient()
+
+    # ── Inicia servidor HTTP na porta do Railway ──────────────────────────────
+    port = int(os.environ.get("PORT", 8080))
+    await start_api_server(port=port)
+
     logger.info(
         f"Worker HTTP iniciado | Polling: {settings.POLL_INTERVAL_SECONDS}s | "
         f"Concorrência: {settings.MAX_CONCURRENT_TASKS}"
