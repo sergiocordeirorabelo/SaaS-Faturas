@@ -287,6 +287,9 @@ async def handle_estudo_uc(request: web.Request) -> web.Response:
     if not uc:
         return web.json_response({"error": "uc obrigatória"}, status=400)
 
+    limit = min(int(request.query.get("limit", "12")), 12)
+    limit = max(limit, 1)
+
     if not PPTX_DISPONIVEL:
         return web.json_response({"error": "gerar_estudo não disponível no servidor"}, status=500)
 
@@ -299,7 +302,7 @@ async def handle_estudo_uc(request: web.Request) -> web.Response:
 
         def _buscar():
             faturas = db._client.table("faturas_parsed").select("*").eq("uc", uc)\
-                .order("mes_referencia", desc=True).limit(12).execute().data or []
+                .order("mes_referencia", desc=True).limit(limit).execute().data or []
             alertas = db._client.table("alertas_de_fatura").select("*").eq("uc", uc)\
                 .eq("resolvido", False).execute().data or []
             clientes = db._client.table("clientes").select("cnpj")\
