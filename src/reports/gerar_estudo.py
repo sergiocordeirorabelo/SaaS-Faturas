@@ -36,9 +36,10 @@ def _tx(s,t,l,tp,w,h,sz=14,b=False,it=False,c=C.txt,al=PP_ALIGN.LEFT,va=MSO_ANCH
     if ls: p.line_spacing=Pt(ls)
     return tb
 
-def _rt(s,l,t,w,h,fc=None):
+def _rt(s,l,t,w,h,fc=None,lc=None):
     sh=s.shapes.add_shape(MSO_SHAPE.RECTANGLE,Inches(l),Inches(t),Inches(w),Inches(h))
-    sh.line.fill.background()
+    if lc: sh.line.color.rgb=lc;sh.line.width=Pt(1)
+    else: sh.line.fill.background()
     if fc: sh.fill.solid();sh.fill.fore_color.rgb=fc
     return sh
 
