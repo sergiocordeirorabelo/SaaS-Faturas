@@ -14,6 +14,17 @@ from pptx.enum.shapes import MSO_SHAPE
 
 logger=logging.getLogger(__name__)
 
+def _assets():
+    d=os.path.join(os.path.dirname(os.path.abspath(__file__)),"assets")
+    if os.path.isdir(d): return d
+    return None
+
+def _img(s,path,l,t,w,h):
+    try:
+        if os.path.exists(path):
+            s.shapes.add_picture(path,Inches(l),Inches(t),Inches(w),Inches(h))
+    except: pass
+
 class C:
     navy=RGBColor(0x1B,0x2A,0x4A);dark=RGBColor(0x0F,0x1B,0x33)
     orange=RGBColor(0xF5,0xA6,0x23);green=RGBColor(0x05,0x96,0x69)
@@ -130,10 +141,19 @@ def _s1(p,d,cnpj):
     s.background.fill.solid();s.background.fill.fore_color.rgb=C.white
     # Painel esquerdo navy com hexágonos simulados
     _rt(s,0,0,5.2,7.5,C.navy)
-    # Hexágonos decorativos (shapes)
-    for y in[0.4,2.2,4.0]:
-        _rt(s,0.3,y,2.2,1.6,RGBColor(0x25,0x3E,0x6B))
-        _rt(s,2.7,y+0.8,2.2,1.6,RGBColor(0x1E,0x35,0x5C))
+    # Foto de torres elétricas
+    a=_assets()
+    if a:
+        _img(s,os.path.join(a,"torre1.png"),0.2,0.3,2.3,2.0)
+        _img(s,os.path.join(a,"torre2.png"),2.6,1.2,2.3,1.6)
+        _img(s,os.path.join(a,"torre1.png"),0.2,2.5,2.3,2.0)
+        _img(s,os.path.join(a,"torre2.png"),2.6,3.3,2.3,1.6)
+        _img(s,os.path.join(a,"torre1.png"),0.2,4.8,2.3,2.0)
+        _img(s,os.path.join(a,"torre2.png"),2.6,5.4,2.3,1.6)
+    else:
+        for y in[0.4,2.2,4.0]:
+            _rt(s,0.3,y,2.2,1.6,RGBColor(0x25,0x3E,0x6B))
+            _rt(s,2.7,y+0.8,2.2,1.6,RGBColor(0x1E,0x35,0x5C))
     # Barra inferior navy
     _rt(s,0,7.2,13.3,0.3,C.navy)
     # Logo
@@ -151,9 +171,11 @@ def _s1(p,d,cnpj):
 # SLIDE 2 — TRANSFORMANDO CUSTO EM ESTRATÉGIA
 def _s2(p,d):
     s=p.slides.add_slide(p.slide_layouts[6])
-    # Painel direito decorativo
+    # Painel direito com foto
     _rt(s,9.5,0,3.8,7.5,RGBColor(0xF0,0xF4,0xF8))
     _rt(s,13.1,0,0.2,7.5,C.orange)
+    a=_assets()
+    if a: _img(s,os.path.join(a,"torre_sunset.png"),9.7,1.0,3.3,5.5)
     _tx(s,"Transformando custo em estratégia",0.5,0.3,8.5,0.6,28,True,c=C.navy)
     _rt(s,0.5,1.1,8.5,5.0,C.off,C.grayL)
     txts=["A energia elétrica, que tradicionalmente é tratada como um custo fixo e inevitável, passa a ser gerida como um ativo estratégico com a Trianon Energia.",
@@ -223,9 +245,11 @@ def _s3(p,d):
 # SLIDE 4 — RESUMO TÉCNICO
 def _s4(p,d):
     s=p.slides.add_slide(p.slide_layouts[6])
-    # Painel direito decorativo
+    # Painel direito com foto
     _rt(s,9.0,0,4.3,7.5,RGBColor(0xF0,0xF4,0xF8))
     _rt(s,13.1,0,0.2,7.5,C.orange)
+    a=_assets()
+    if a: _img(s,os.path.join(a,"torre_sunset.png"),9.2,0.5,3.8,6.5)
     _tx(s,"Resumo técnico:",0.5,0.3,7,0.6,28,True,it=True,c=C.navy)
     # Consolidado
     _tx(s,f"CONSOLIDADO DOS ÚLTIMOS {d['n']} MESES:",0.5,1.1,7,0.3,11,True,c=C.txt)
@@ -314,9 +338,11 @@ def _s6(p,d):
 # SLIDE 7 — ESCOPO DAS ATIVIDADES
 def _s7(p,d):
     s=p.slides.add_slide(p.slide_layouts[6])
-    # Painel direito
+    # Painel direito com foto
     _rt(s,9.5,0,3.8,3,RGBColor(0x06,0xA0,0xB5))
     _rt(s,9.5,3,3.8,4.5,C.navy)
+    a=_assets()
+    if a: _img(s,os.path.join(a,"engenheira.png"),9.6,3.2,3.6,4.1)
     _tx(s,"Trianon",10,0.3,2.8,0.5,20,True,c=C.white)
     _tx(s,"ENERGIA",10,0.7,2.8,0.3,10,c=C.orange)
     _tx(s,"Escopo das atividades",0.4,0.3,8,0.6,28,True,c=C.navy)
