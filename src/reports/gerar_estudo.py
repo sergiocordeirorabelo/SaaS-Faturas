@@ -114,24 +114,39 @@ def _analisar(faturas, alertas=None):
             tp=float(f.get("total_a_pagar")or 0)
             if tp>5000:icms+=tp*0.63*0.18  # TUSD*alíquota estimada
     dt=dd+du+dr+dm2+icms
-    # Pontos
+    # Pontos de atenção
+    # IMPORTANTE: pt1 cabe ~25 chars (caixa pequena), pts 2-6 cabem ~100 chars (caixas maiores)
     pts=[]
     if ut<85 and dcm>0:
-        pts.append(f"Demanda contratada: {_fi(dcm)} kW, utilização {ut}%. Podendo ser ajustada com sazonalidade.")
+        pts.append(f"Demanda contratada atual.")  # pt1 = curto
+        pts.append(f"Demanda não utilizada recorrente, {_fi(dcm)} kW contratada vs {_fi(dmd)} kW utilizada ({ut}%). Podendo ser ajustada com sazonalidade.")
+    else:
+        pts.append(f"Demanda contratada atual.")
+        pts.append(f"Demanda de {_fi(dcm)} kW com utilização de {ut}%. Dentro dos parâmetros aceitáveis.")
     if dr>0:
-        pts.append(f"Energia reativa: R$ {_f(dr)}. Corrigir fator de potência com Banco de Capacitores.")
-    if gd>0:
-        pts.append(f"Geração Distribuída ativa. Créditos: R$ {_f(gd)}. Verificar expansão.")
+        pts.append(f"Energia reativa (UFER): R$ {_f(dr)}. Multa por baixo fator de potência, corrigir com Banco de Capacitores e estudar Filtro Capacitivo.")
+    elif gd>0:
+        pts.append(f"Geração Distribuída ativa. Créditos de R$ {_f(gd)}. Verificar potencial de expansão do sistema.")
+    else:
+        pts.append(f"Sem cobrança de energia reativa. Fator de potência dentro dos limites da ANEEL.")
     if cosip_m>300:
-        pts.append(f"COSIP elevada: R$ {_f(cosip_m)}/mês. Contestar junto à Prefeitura.")
-    if dm2>0:
-        pts.append(f"Multas por atrasos: R$ {_f(dm2)}. Requer gestão ativa nas contas.")
-    if du>0:
-        pts.append(f"Demanda ultrapassada: R$ {_f(du)}. Ajustar contrato ou controlar picos.")
-    if icms>0:
-        pts.append(f"ICMS sobre TUSD: R$ {_f(icms)} recuperável via laudo técnico.")
-    if el:
-        pts.append(f"Elegível Mercado Livre ({f0.get('subgrupo','?')}, {_fi(dcm)} kW). Economia 15-25%.")
+        pts.append(f"COSIP elevada: R$ {_f(cosip_m)}/mês. Contestar valor junto à Prefeitura e verificar base de cálculo.")
+    elif dm2>0:
+        pts.append(f"Multas por atrasos de pagamentos: R$ {_f(dm2)}. Requer uma gestão ativa nas contas para evitar encargos.")
+    else:
+        pts.append(f"Sem multas por atraso identificadas. Manter gestão preventiva dos vencimentos.")
+    if dm2>0 and cosip_m>300:
+        pts.append(f"Multas por atrasos de pagamentos: R$ {_f(dm2)}. Requer gestão ativa nas contas.")
+    elif icms>0:
+        pts.append(f"ICMS sobre TUSD: R$ {_f(icms)} potencialmente recuperável. Elaborar laudo técnico para separar produção.")
+    elif el:
+        pts.append(f"Elegível para o Mercado Livre ({f0.get('subgrupo','?')}, {_fi(dcm)} kW). Economia estimada de 15-25% via comercializadora.")
+    else:
+        pts.append(f"Auditar leituras do medidor da UC para identificar cobranças indevidas nas últimas 120 faturas.")
+    if icms>0 and len(pts)<6:
+        pts.append(f"ICMS sobre TUSD: R$ {_f(icms)} recuperável via laudo técnico e processo administrativo/judicial.")
+    if el and len(pts)<6:
+        pts.append(f"Elegível Mercado Livre ({f0.get('subgrupo','?')}, {_fi(dcm)} kW). Economia 15-25% via comercializadora.")
     for al in alertas:
         t=al.get("titulo","")
         if t and len(pts)<6:pts.append(f"{t}. {al.get('descricao','')[:80]}")
@@ -202,23 +217,23 @@ def gerar_estudo_pdf(faturas,alertas=None,cnpj="",valor_mensal=500,comissao=30,p
         logger.warning(f"[Estudo] Erro slide 3: {e}")
 
     # Pontos de atenção (6 posições no template)
-    _replace_all(prs,"Demanda contratada atual.",d["pts"][0][:50])
+    _replace_all(prs,"Demanda contratada atual.",d["pts"][0])
     
     _replace_all(prs,"Consumo na Ponta (Entre as 20h às 23h) muito elevado, podendo ser feito um estudo de BESS",
-                 d["pts"][1][:90])
+                 d["pts"][1])
     _replace_all(prs,"(Armazenamento de energia em baterias).","")
     
     _replace_all(prs,"Demanda não utilizada recorrente, muito desperdício todos os meses. Podendo ser ajustada com sazonalidade.",
-                 d["pts"][2][:100])
+                 d["pts"][2])
     
     _replace_all(prs,"Energia reativa, multa devido ao baixo fator  de potência, corrigir com Banco de Capacitores e estudar o Filtro Capacitivo para protege-lo e os demais equipamentos da indústria.",
-                 d["pts"][3][:130])
+                 d["pts"][3])
     
     _replace_all(prs,"Multas por atrasos de pagamentos constantes, requer uma gestão ativa nas contas.",
-                 d["pts"][4][:80])
+                 d["pts"][4])
     
     _replace_all(prs,"Descrição de Gradeza são os registros feitos pelo medidor da UC, aqui acontecem as auditorias retroativas.",
-                 d["pts"][5][:100])
+                 d["pts"][5])
 
     # ═══════════════════════════════════════════════════════════════════════
     # SLIDE 4: FATURA COMERCIALIZADORA — remover (específico do Cometais)
@@ -338,6 +353,7 @@ def gerar_estudo_pdf(faturas,alertas=None,cnpj="",valor_mensal=500,comissao=30,p
     # ═══════════════════════════════════════════════════════════════════════
     _replace_all(prs,"R$ 1.500,00 nos três primeiros meses",f"R$ {_fi(valor_mensal)},00/mês por UC")
     _replace_all(prs,"R$ 2.500,00 no quarto mês em diante",f"{comissao}% dos valores recuperados")
+    _replace_all(prs,"30% dos valores que forem recuperados","")
 
     # ═══════════════════════════════════════════════════════════════════════
     # SALVAR E CONVERTER
