@@ -360,15 +360,54 @@ def gerar_estudo_pdf(faturas, alertas=None, cnpj="", valor_mensal=500, comissao=
         pptx_path=os.path.join(tmp,"estudo.pptx")
         pdf_path=os.path.join(tmp,"estudo.pdf")
         prs.save(pptx_path)
+        logger.info(f"PPTX salvo: {os.path.getsize(pptx_path)} bytes")
 
         try:
-            subprocess.run([
-                "soffice","--headless","--norestore","--convert-to","pdf",
-                "--outdir",tmp,pptx_path
-            ], check=True, timeout=30, capture_output=True)
+            # Profile temporário para Docker (evita lock do soffice)
+            profile_dir = os.path.join(tmp, "lo_profile")
+            os.makedirs(profile_dir, exist_ok=True)
+
+            result = subprocess.run([
+                "soffice",
+                "--headless",
+                "--norestore",
+                "--nofirststartwizard",
+                f"-env:UserInstallation=file://{profile_dir}",
+                "--convert-to", "pdf",
+                "--outdir", tmp,
+                pptx_path
+            ], check=True, timeout=60, capture_output=True, text=True)
+            logger.info(f"soffice stdout: {result.stdout.strip()}")
+            if result.stderr:
+                logger.warning(f"soffice stderr: {result.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            logger.error("soffice timeout (60s)")
+            with open(pptx_path,"rb") as f:
+                buf = io.BytesIO(f.read())
+                buf.seek(0)
+                return buf
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            logger.warning(f"LibreOffice indisponível ({e}), retornando PPTX")
-            with open(pptx_path,"rb") as f: return io.BytesIO(f.read())
+            logger.warning(f"LibreOffice falhou ({e}), retornando PPTX")
+            with open(pptx_path,"rb") as f:
+                buf = io.BytesIO(f.read())
+                buf.seek(0)
+                return buf
+
+        if not os.path.exists(pdf_path):
+            # Tenta encontrar o PDF com outro nome
+            pdfs = [f for f in os.listdir(tmp) if f.endswith('.pdf')]
+            if pdfs:
+                pdf_path = os.path.join(tmp, pdfs[0])
+                logger.info(f"PDF encontrado: {pdfs[0]}")
+            else:
+                logger.error(f"PDF não gerado. Arquivos em tmp: {os.listdir(tmp)}")
+                with open(pptx_path,"rb") as f:
+                    buf = io.BytesIO(f.read())
+                    buf.seek(0)
+                    return buf
+
+        pdf_size = os.path.getsize(pdf_path)
+        logger.info(f"PDF gerado: {pdf_size} bytes")
 
         with open(pdf_path,"rb") as f:
             buf=io.BytesIO(f.read())

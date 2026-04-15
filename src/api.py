@@ -323,7 +323,7 @@ async def handle_estudo_uc(request: web.Request) -> web.Response:
             body=buf.read(),
             content_type="application/pdf",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Disposition": f'inline; filename="{filename}"',
                 "Access-Control-Allow-Origin": "*",
             }
         )
