@@ -5,12 +5,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     qpdf \
-    libreoffice-core \
-    libreoffice-impress \
-    fonts-dejavu-core \
-    fonts-liberation \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /tmp/lo_profile
+    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
