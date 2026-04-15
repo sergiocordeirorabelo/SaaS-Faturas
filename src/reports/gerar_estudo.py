@@ -137,16 +137,16 @@ def _s1(p,d,cnpj):
     # Barra inferior navy
     _rt(s,0,7.2,13.3,0.3,C.navy)
     # Logo
-    _tx(s,"Trianon",7.5,0.6,4,0.7,32,True,c=C.navy,fn="Calibri")
-    _tx(s,"E N E R G I A",7.5,1.2,4,0.4,12,c=C.orange,fn="Calibri")
-    _tx(s,"⚡",10.8,0.55,0.8,0.8,34,c=C.orange)
+    _tx(s,"Trianon",6.8,0.6,4,0.7,32,True,c=C.navy,fn="Calibri")
+    _tx(s,"E N E R G I A",6.8,1.2,4,0.4,12,c=C.orange,fn="Calibri")
+    _tx(s,"⚡",10.2,0.55,0.8,0.8,34,c=C.orange)
     # Título
-    _tx(s,"Estudo Técnico",6.5,2.8,6,0.7,36,True,c=C.navy)
-    _tx(s,"+ Proposta Comercial",6.5,3.5,6,0.5,24,c=C.gray)
+    _tx(s,"Estudo Técnico",5.8,2.8,7,0.7,36,True,c=C.navy)
+    _tx(s,"+ Proposta Comercial",5.8,3.5,7,0.5,24,c=C.gray)
     # Dados cliente
-    _tx(s,d["nome"][:55],6.5,5.0,6.2,0.4,13,True,c=C.navy)
-    _tx(s,f"CNPJ: {cnpj}",6.5,5.4,6,0.3,12,c=C.txt)
-    _tx(s,f"UC: {d['uc']}",6.5,5.7,6,0.3,12,c=C.txt)
+    _tx(s,d["nome"][:65],5.8,5.0,7,0.4,12,True,c=C.navy)
+    _tx(s,f"CNPJ: {cnpj}",5.8,5.4,7,0.3,11,c=C.txt)
+    _tx(s,f"UC: {d['uc']}",5.8,5.7,7,0.3,11,c=C.txt)
 
 # SLIDE 2 — TRANSFORMANDO CUSTO EM ESTRATÉGIA
 def _s2(p,d):
@@ -271,10 +271,8 @@ def _s4(p,d):
 # SLIDE 5 — COM GESTÃO vs SEM GESTÃO
 def _s5(p,d):
     s=p.slides.add_slide(p.slide_layouts[6])
-    # Decoração direita
-    _rt(s,9.8,0,3.5,3,C.navy)
-    # Triângulos decorativos (simula os chevrons do Cometais)
-    _rt(s,10,0.3,1.2,0.6,C.cyan);_rt(s,10.5,1.0,1.2,0.6,C.cyan);_rt(s,10,1.7,1.2,0.6,C.cyan)
+    # Barra lateral decorativa
+    _rt(s,13.0,0,0.3,7.5,C.navy)
     da=d["da"]
     # Com Gestão
     _tx(s,"Com Gestão:",0.5,0.3,5,0.5,24,True,c=C.navy)
@@ -367,14 +365,24 @@ def _s9(p,d):
     s.background.fill.solid();s.background.fill.fore_color.rgb=C.dark
     _rt(s,0,7.2,13.3,0.3,C.cyan)
     _rt(s,0,7.0,13.3,0.2,C.cyan)
-    # "Confiam em nós" placeholder
-    _rt(s,0.4,0.3,5.5,4.5,C.white)
-    _tx(s,"Confiam em nós",0.5,0.4,5,0.3,12,True,it=True,c=C.navy)
-    _tx(s,"Clientes atendidos pela Trianon\nem Manaus e região",0.8,1.5,4.5,1.0,14,c=C.gray,al=PP_ALIGN.CENTER)
+    # Confiam em nós - grid de nomes
+    _rt(s,0.4,0.3,5.5,5.8,C.white)
+    _tx(s,"Confiam em nós",0.6,0.4,5,0.3,13,True,it=True,c=C.navy)
+    clientes_ref = ["Amazônica","Jakspel","APA Móveis","Tradição Mineira",
+        "JLN","Baratão","JBMIX Argamassa","Frigoman",
+        "Sementinha","Etam","HEVI","Plastimanaus",
+        "Natan","Bigazine","EBD Grupo","FarMelhor",
+        "Mapemi-Brasil","Mirandex","Manauara Filmes"]
+    cols=4;cw=1.3;ch=0.5;gx=0.05;gy=0.05
+    for i,nm in enumerate(clientes_ref):
+        col=i%cols;row=i//cols
+        cx=0.6+col*(cw+gx);cy=0.9+row*(ch+gy)
+        _rt(s,cx,cy,cw,ch,RGBColor(0xF0,0xF4,0xF8),C.grayL)
+        _tx(s,nm,cx+0.05,cy+0.12,cw-0.1,ch-0.1,7,True,c=C.navy,al=PP_ALIGN.CENTER)
     # Parceiros
-    _tx(s,"Parceiros",0.5,5.0,5,0.3,11,True,c=C.white)
-    _rt(s,0.5,5.35,5,0.7,RGBColor(0x20,0x30,0x50))
-    _tx(s,"Moura  ·  Ambar Energia  ·  Itaipu",0.8,5.45,4.5,0.4,12,True,c=C.white,al=PP_ALIGN.CENTER)
+    _tx(s,"Parceiros",0.5,5.2,5,0.3,11,True,c=C.white)
+    _rt(s,0.5,5.55,5,0.6,RGBColor(0x20,0x30,0x50))
+    _tx(s,"Moura  ·  Ambar Energia  ·  Itaipu",0.8,5.65,4.5,0.35,12,True,c=C.white,al=PP_ALIGN.CENTER)
     # Logo grande
     _tx(s,"Trianon",7,1.5,5.5,0.8,40,True,c=C.white,al=PP_ALIGN.CENTER)
     _tx(s,"E N E R G I A",7,2.3,5.5,0.4,16,c=C.orange,al=PP_ALIGN.CENTER)
