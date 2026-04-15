@@ -391,24 +391,29 @@ def _s9(p,d):
     s.background.fill.solid();s.background.fill.fore_color.rgb=C.dark
     _rt(s,0,7.2,13.3,0.3,C.cyan)
     _rt(s,0,7.0,13.3,0.2,C.cyan)
-    # Confiam em nós - grid de nomes
-    _rt(s,0.4,0.3,5.5,5.8,C.white)
-    _tx(s,"Confiam em nós",0.6,0.4,5,0.3,13,True,it=True,c=C.navy)
-    clientes_ref = ["Amazônica","Jakspel","APA Móveis","Tradição Mineira",
-        "JLN","Baratão","JBMIX Argamassa","Frigoman",
-        "Sementinha","Etam","HEVI","Plastimanaus",
-        "Natan","Bigazine","EBD Grupo","FarMelhor",
-        "Mapemi-Brasil","Mirandex","Manauara Filmes"]
-    cols=4;cw=1.3;ch=0.5;gx=0.05;gy=0.05
-    for i,nm in enumerate(clientes_ref):
-        col=i%cols;row=i//cols
-        cx=0.6+col*(cw+gx);cy=0.9+row*(ch+gy)
-        _rt(s,cx,cy,cw,ch,RGBColor(0xF0,0xF4,0xF8),C.grayL)
-        _tx(s,nm,cx+0.05,cy+0.12,cw-0.1,ch-0.1,7,True,c=C.navy,al=PP_ALIGN.CENTER)
+    # Confiam em nós - imagem real dos logos
+    a=_assets()
+    logos_path = os.path.join(a,"logos_clientes.png") if a else None
+    if logos_path and os.path.exists(logos_path):
+        _img(s,logos_path,0.2,0.15,5.3,5.2)
+    else:
+        _rt(s,0.4,0.3,5.2,5.0,C.white)
+        _tx(s,"Confiam em nós",0.6,0.4,5,0.3,13,True,it=True,c=C.navy)
+        clientes_ref = ["Amazônica","Jakspel","APA Móveis","Tradição Mineira",
+            "JLN","Baratão","JBMIX Argamassa","Frigoman",
+            "Sementinha","Etam","HEVI","Plastimanaus",
+            "Natan","Bigazine","EBD Grupo","FarMelhor",
+            "Mapemi-Brasil","Mirandex","Manauara Filmes"]
+        cols=4;cw=1.2;ch=0.5;gx=0.05;gy=0.05
+        for i,nm in enumerate(clientes_ref):
+            col=i%cols;row=i//cols
+            cx=0.6+col*(cw+gx);cy=0.9+row*(ch+gy)
+            _rt(s,cx,cy,cw,ch,RGBColor(0xF0,0xF4,0xF8),C.grayL)
+            _tx(s,nm,cx+0.05,cy+0.12,cw-0.1,ch-0.1,7,True,c=C.navy,al=PP_ALIGN.CENTER)
     # Parceiros
-    _tx(s,"Parceiros",0.5,5.2,5,0.3,11,True,c=C.white)
-    _rt(s,0.5,5.55,5,0.6,RGBColor(0x20,0x30,0x50))
-    _tx(s,"Moura  ·  Ambar Energia  ·  Itaipu",0.8,5.65,4.5,0.35,12,True,c=C.white,al=PP_ALIGN.CENTER)
+    _tx(s,"Parceiros",0.3,5.5,5,0.3,12,True,c=C.white)
+    _rt(s,0.3,5.85,5.2,0.8,RGBColor(0x20,0x30,0x50))
+    _tx(s,"Moura  ·  Ambar Energia  ·  Itaipu",0.5,6.0,4.8,0.4,14,True,c=C.white,al=PP_ALIGN.CENTER)
     # Logo grande
     _tx(s,"Trianon",7,1.5,5.5,0.8,40,True,c=C.white,al=PP_ALIGN.CENTER)
     _tx(s,"E N E R G I A",7,2.3,5.5,0.4,16,c=C.orange,al=PP_ALIGN.CENTER)
