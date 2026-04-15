@@ -98,7 +98,22 @@ def _analisar(faturas, alertas=None):
     dmx=max(dms);dmd=sum(dms)/n
     ut=round(dmd/dcm*100)if dcm>0 else 0
     el=(f0.get("subgrupo")or"").startswith("A")or dcm>=300
-    dt=dd+dr+dm2
+    # Demanda ultrapassada
+    du=0.0
+    for f in faturas:
+        for it in(f.get("itens_faturados")or[]):
+            d2=(it.get("descricao")or"").lower()
+            if "ultrapass" in d2:du+=abs(float(it.get("valor")or 0))
+    # ICMS sobre TUSD (potencial recuperação)
+    icms=0.0
+    for f in faturas:
+        iv=float(f.get("icms_valor")or 0)
+        if iv>0:
+            icms+=iv*0.6  # ~60% do ICMS é sobre TUSD, recuperável
+        else:
+            tp=float(f.get("total_a_pagar")or 0)
+            if tp>5000:icms+=tp*0.63*0.18  # TUSD*alíquota estimada
+    dt=dd+du+dr+dm2+icms
     # Pontos
     pts=[]
     if ut<85 and dcm>0:
@@ -111,6 +126,10 @@ def _analisar(faturas, alertas=None):
         pts.append(f"COSIP elevada: R$ {_f(cosip_m)}/mês. Contestar junto à Prefeitura.")
     if dm2>0:
         pts.append(f"Multas por atrasos: R$ {_f(dm2)}. Requer gestão ativa nas contas.")
+    if du>0:
+        pts.append(f"Demanda ultrapassada: R$ {_f(du)}. Ajustar contrato ou controlar picos.")
+    if icms>0:
+        pts.append(f"ICMS sobre TUSD: R$ {_f(icms)} recuperável via laudo técnico.")
     if el:
         pts.append(f"Elegível Mercado Livre ({f0.get('subgrupo','?')}, {_fi(dcm)} kW). Economia 15-25%.")
     for al in alertas:
@@ -139,7 +158,7 @@ def _analisar(faturas, alertas=None):
         "n":n,"f0":f0,"mes":f0.get("mes_referencia",""),
         "cm":cm,"ca":cm*12,"dt":dt,"da":dt/n*12,
         "dcm":dcm,"dmx":dmx,"dmd":dmd,"ut":ut,
-        "dd":dd,"dr":dr,"dm2":dm2,
+        "dd":dd,"du":du,"dr":dr,"dm2":dm2,"icms":icms,
         "cosip_t":cosip_t,"cosip_m":cosip_m,"gd":gd,"el":el,
         "pts":pts,"acoes":acoes[:8]}
 
@@ -242,12 +261,18 @@ def gerar_estudo_pdf(faturas,alertas=None,cnpj="",valor_mensal=500,comissao=30,p
                 if d["dd"]>0:
                     p=round(d["dd"]/d["dt"]*100,2)if d["dt"]>0 else 0
                     desp.append(("Demanda não utilizada:",f"R$ {_f(d['dd'])}",f"{p:.2f}%"))
+                if d["du"]>0:
+                    p=round(d["du"]/d["dt"]*100,2)if d["dt"]>0 else 0
+                    desp.append(("Demanda ultrapassada:",f"R$ {_f(d['du'])}",f"{p:.2f}%"))
                 if d["dr"]>0:
                     p=round(d["dr"]/d["dt"]*100,2)if d["dt"]>0 else 0
                     desp.append(("Energia reativa:",f"R$ {_f(d['dr'])}",f"{p:.2f}%"))
                 if d["dm2"]>0:
                     p=round(d["dm2"]/d["dt"]*100,2)if d["dt"]>0 else 0
                     desp.append(("Multas por atrasos:",f"R$ {_f(d['dm2'])}",f"{p:.2f}%"))
+                if d["icms"]>0:
+                    p=round(d["icms"]/d["dt"]*100,2)if d["dt"]>0 else 0
+                    desp.append(("ICMS:",f"R$ {_f(d['icms'])}",f"{p:.2f}%"))
                 for i in range(6):
                     row=4+i
                     if row>=len(tbl.rows):break
