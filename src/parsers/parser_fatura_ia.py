@@ -86,6 +86,7 @@ Retorne APENAS o JSON válido, sem markdown, sem explicação. Formato exato:
 }
 
 REGRAS:
+- IMPORTANTE: "cliente_nome" é a RAZÃO SOCIAL da empresa (ex: "SERVICO DE APOIO AS MICROS E PEQUENAS EMPRESAS DO AMAZONAS"), NÃO confundir com o nome da rua/endereço. Na fatura da Amazonas Energia, a razão social fica na segunda caixa abaixo do cabeçalho, geralmente em negrito. O endereço (AV, RUA, etc.) vai em "cliente_endereco".
 - Extraia TODOS os itens faturados, incluindo multas, correções monetárias, juros
 - Na tabela "Descrição da Grandeza", extraia TODAS as linhas (En Ativa, Dem Acum, Ufer, Dmcr, En Reversa)
 - Se um campo não existir no PDF, use null
