@@ -1,7 +1,7 @@
 """
-Parser de Faturas via Claude Vision API.
-Envia imagem do PDF → Claude extrai TODOS os campos em JSON estruturado.
-Fallback: parser regex se a API falhar.
+Parser de Faturas via Vision API (OpenAI ou Anthropic).
+Envia imagem do PDF → IA extrai TODOS os campos em JSON estruturado.
+Prioridade: OpenAI (GPT-4o) → Anthropic (Claude) → Regex fallback.
 """
 from __future__ import annotations
 import io, os, json, logging, base64, tempfile
@@ -11,8 +11,10 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.getenv("AI_PARSER_MODEL", "claude-haiku-4-5-20251001")
+OPENAI_KEY     = os.getenv("OPENAI_API_KEY", "")
+ANTHROPIC_KEY  = os.getenv("ANTHROPIC_API_KEY", "")
+OPENAI_MODEL   = os.getenv("AI_PARSER_MODEL", "gpt-4o-mini")
+ANTHROPIC_MODEL = os.getenv("AI_PARSER_MODEL_CLAUDE", "claude-haiku-4-5-20251001")
 
 PROMPT_PARSE = """Analise esta fatura de energia elétrica da Amazonas Energia e extraia TODOS os campos em JSON.
 
@@ -127,74 +129,104 @@ def _render_pdf_screenshot(pdf_path: str, page_num: int = 0, dpi: float = 2.5) -
     return img_bytes
 
 
+async def _call_openai(images: list[bytes]) -> str:
+    """Chama OpenAI GPT-4o Vision."""
+    content = []
+    for img_bytes in images:
+        b64 = base64.b64encode(img_bytes).decode("utf-8")
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}", "detail": "high"}})
+    content.append({"type": "text", "text": PROMPT_PARSE})
+
+    async with httpx.AsyncClient(timeout=90) as client:
+        resp = await client.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
+            json={"model": OPENAI_MODEL, "max_tokens": 4096,
+                  "messages": [{"role": "user", "content": content}]},
+        )
+    if resp.status_code != 200:
+        raise Exception(f"OpenAI API {resp.status_code}: {resp.text[:200]}")
+    data = resp.json()
+    return data["choices"][0]["message"]["content"]
+
+
+async def _call_anthropic(images: list[bytes]) -> str:
+    """Chama Anthropic Claude Vision."""
+    content = []
+    for img_bytes in images:
+        b64 = base64.b64encode(img_bytes).decode("utf-8")
+        content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}})
+    content.append({"type": "text", "text": PROMPT_PARSE})
+
+    async with httpx.AsyncClient(timeout=90) as client:
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "Content-Type": "application/json"},
+            json={"model": ANTHROPIC_MODEL, "max_tokens": 4096,
+                  "messages": [{"role": "user", "content": content}]},
+        )
+    if resp.status_code != 200:
+        raise Exception(f"Anthropic API {resp.status_code}: {resp.text[:200]}")
+    data = resp.json()
+    return "".join(b["text"] for b in data.get("content", []) if b.get("type") == "text")
+
+
+def _clean_json(text: str) -> dict:
+    """Limpa e parseia resposta JSON da IA."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return json.loads(text.strip())
+
+
 async def parse_pdf_ia(pdf_path: str) -> dict:
-    """Parse completo via Claude Vision. Retorna dict estruturado."""
-    if not ANTHROPIC_KEY:
-        logger.warning("ANTHROPIC_API_KEY não configurada, usando parser regex")
+    """Parse completo via Vision API. OpenAI → Anthropic → Regex."""
+    if not OPENAI_KEY and not ANTHROPIC_KEY:
+        logger.warning("[ParserIA] Nenhuma API key configurada, usando regex")
         from src.parsers.parser_fatura import parse_pdf
         return parse_pdf(pdf_path)
 
     try:
         images = _render_pdf_to_images(pdf_path, max_pages=2)
-        logger.info(f"[ParserIA] Renderizou {len(images)} páginas do PDF")
+        logger.info(f"[ParserIA] {len(images)} páginas renderizadas")
 
-        # Monta conteúdo com imagens
-        content = []
-        for i, img_bytes in enumerate(images):
-            b64 = base64.b64encode(img_bytes).decode("utf-8")
-            content.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": "image/png", "data": b64}
-            })
-        content.append({"type": "text", "text": PROMPT_PARSE})
+        text_response = None
+        provider = None
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": ANTHROPIC_MODEL,
-                    "max_tokens": 4096,
-                    "messages": [{"role": "user", "content": content}],
-                },
-            )
+        # Tenta OpenAI primeiro (tem no Railway)
+        if OPENAI_KEY:
+            try:
+                text_response = await _call_openai(images)
+                provider = "openai_vision"
+                logger.info(f"[ParserIA] OpenAI respondeu ({len(text_response)} chars)")
+            except Exception as e:
+                logger.warning(f"[ParserIA] OpenAI falhou: {e}")
 
-        if resp.status_code != 200:
-            logger.error(f"[ParserIA] Claude API erro {resp.status_code}: {resp.text[:300]}")
-            raise Exception(f"Claude API {resp.status_code}")
+        # Fallback Anthropic
+        if not text_response and ANTHROPIC_KEY:
+            try:
+                text_response = await _call_anthropic(images)
+                provider = "anthropic_vision"
+                logger.info(f"[ParserIA] Anthropic respondeu ({len(text_response)} chars)")
+            except Exception as e:
+                logger.warning(f"[ParserIA] Anthropic falhou: {e}")
 
-        data = resp.json()
-        text_response = ""
-        for block in data.get("content", []):
-            if block.get("type") == "text":
-                text_response += block["text"]
+        if not text_response:
+            raise Exception("Ambas APIs falharam")
 
-        # Limpa markdown se Claude envolveu em ```json
-        text_response = text_response.strip()
-        if text_response.startswith("```"):
-            text_response = text_response.split("\n", 1)[1] if "\n" in text_response else text_response[3:]
-        if text_response.endswith("```"):
-            text_response = text_response[:-3]
-        text_response = text_response.strip()
-
-        parsed = json.loads(text_response)
-        logger.info(f"[ParserIA] ✓ UC {parsed.get('uc','?')} {parsed.get('mes_referencia','?')} — {len(parsed.get('itens_faturados',[]))} itens")
-
-        # Garante campos obrigatórios
-        parsed.setdefault("source_parser", "claude_vision")
+        parsed = _clean_json(text_response)
+        parsed["source_parser"] = provider
+        logger.info(f"[ParserIA] ✓ UC {parsed.get('uc','?')} {parsed.get('mes_referencia','?')} — {len(parsed.get('itens_faturados',[]))} itens via {provider}")
         return parsed
 
     except json.JSONDecodeError as e:
-        logger.error(f"[ParserIA] JSON inválido do Claude: {e}")
-        logger.debug(f"[ParserIA] Resposta: {text_response[:500]}")
+        logger.error(f"[ParserIA] JSON inválido: {e}")
     except Exception as e:
         logger.error(f"[ParserIA] Erro: {e}", exc_info=True)
 
-    # Fallback para regex
+    # Fallback regex
     logger.info("[ParserIA] Fallback para parser regex")
     from src.parsers.parser_fatura import parse_pdf
     result = parse_pdf(pdf_path)
