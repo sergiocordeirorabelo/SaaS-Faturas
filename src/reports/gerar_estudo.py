@@ -126,13 +126,33 @@ def _analisar(faturas,alertas=None):
         "pts":pts}
 
 
-def gerar_estudo_pdf(faturas,alertas=None,cnpj="",valor_mensal=500,comissao=30):
+def gerar_estudo_pdf(faturas,alertas=None,cnpj="",valor_mensal=500,comissao=30,pdf_screenshot_bytes=None):
     if not faturas:raise ValueError("Nenhuma fatura")
     d=_analisar(faturas,alertas)
 
     tmpl=os.path.join(_assets(),"template.pptx")
     if not os.path.exists(tmpl):raise FileNotFoundError(f"Template: {tmpl}")
     prs=Presentation(tmpl)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # SLIDE 3: Screenshot da fatura real do cliente (substitui img do Cometais)
+    # ═══════════════════════════════════════════════════════════════════════
+    if pdf_screenshot_bytes:
+        try:
+            s3 = list(prs.slides)[2]
+            shapes3 = list(s3.shapes)
+            # shape[0] é a imagem da fatura (IMG 'object 2')
+            old_img = shapes3[0]
+            left, top, width, height = old_img.left, old_img.top, old_img.width, old_img.height
+            # Remove a imagem antiga
+            sp = old_img._element
+            sp.getparent().remove(sp)
+            # Adiciona screenshot na mesma posição
+            img_stream = io.BytesIO(pdf_screenshot_bytes)
+            s3.shapes.add_picture(img_stream, left, top, width, height)
+            logger.info("[Estudo] Screenshot da fatura embutido no slide 3")
+        except Exception as e:
+            logger.warning(f"[Estudo] Erro ao embutir screenshot: {e}")
 
     # ═══════════════════════════════════════════════════════════════════════
     # FIND & REPLACE — só textos, sem mexer em formatação

@@ -70,11 +70,16 @@ async def _parse_and_analyze(db: SupabaseClient, task_id: str, pdfs: list, task:
                 logger.warning(f"[Parse] Erro ao baixar do storage {storage_path}: {dl_exc}")
                 continue
 
-            # Parse
-            def _parse():
-                return parse_pdf(str(tmp_path))
-
-            dados_fatura = await loop.run_in_executor(None, _parse)
+            # Parse — tenta IA (Claude Vision) primeiro, fallback regex
+            try:
+                from src.parsers.parser_fatura_ia import parse_pdf_ia
+                dados_fatura = await parse_pdf_ia(str(tmp_path))
+                logger.info(f"[Parse] Parser usado: {dados_fatura.get('source_parser','ia')}")
+            except Exception as parse_err:
+                logger.warning(f"[Parse] Parser IA falhou ({parse_err}), usando regex")
+                def _parse():
+                    return parse_pdf(str(tmp_path))
+                dados_fatura = await loop.run_in_executor(None, _parse)
             tmp_path.unlink(missing_ok=True)
 
             if not dados_fatura.get("uc"):

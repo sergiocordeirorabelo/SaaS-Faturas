@@ -312,7 +312,29 @@ async def handle_estudo_uc(request: web.Request) -> web.Response:
         if not faturas:
             return web.json_response({"error": f"UC {uc} não encontrada"}, status=404)
 
-        buf = gerar_estudo_pptx(faturas, alertas, cnpj=cnpj)
+        # Tenta renderizar screenshot da fatura mais recente
+        pdf_screenshot = None
+        try:
+            f0 = faturas[0]
+            source_path = f0.get("source_pdf_path", "")
+            if source_path:
+                def _render_screenshot():
+                    import tempfile
+                    pdf_bytes = db._client.storage.from_("Faturas").download(source_path)
+                    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+                    tmp.write(pdf_bytes)
+                    tmp.close()
+                    try:
+                        from src.parsers.parser_fatura_ia import _render_pdf_screenshot
+                        return _render_pdf_screenshot(tmp.name, page_num=0, dpi=2.5)
+                    finally:
+                        os.unlink(tmp.name)
+                pdf_screenshot = await loop.run_in_executor(None, _render_screenshot)
+                logger.info(f"[API] Screenshot renderizado: {len(pdf_screenshot)} bytes")
+        except Exception as ss_err:
+            logger.warning(f"[API] Screenshot falhou: {ss_err}")
+
+        buf = gerar_estudo_pptx(faturas, alertas, cnpj=cnpj, pdf_screenshot_bytes=pdf_screenshot)
 
         nome = faturas[0].get("cliente_nome", uc).replace(" ", "_")[:30]
         filename = f"Estudo_Tecnico_{nome}.pdf"
