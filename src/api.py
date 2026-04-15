@@ -26,6 +26,12 @@ try:
 except ImportError:
     PDF_DISPONIVEL = False
 
+try:
+    from src.reports.gerar_estudo import gerar_estudo_pdf as gerar_estudo_pptx
+    PPTX_DISPONIVEL = True
+except ImportError:
+    PPTX_DISPONIVEL = False
+
 logger = setup_logger(__name__)
 
 
@@ -208,58 +214,39 @@ async def handle_analise_uc(request: web.Request) -> web.Response:
         alertas_txt = ", ".join(filter(None, [al.get("titulo") for al in alertas[:5]])) or "Nenhum"
         analise_ant = " | ".join(filter(None, [a.get("analise_claude","") for a in analises[:2]]))[:400]
 
-        tem_grupo_a = (f0.get('subgrupo','') or '').startswith('A')
-        dem_ctda = float(f0.get('demanda_contratada_fora_ponta_kw') or 0)
-        dem_medi = float(f0.get('demanda_medida_fora_ponta_kw') or 0)
-        util_dem = f"{round(dem_medi/dem_ctda*100)}%" if dem_ctda > 0 else "—"
-        elegivel_ml = tem_grupo_a or dem_ctda >= 300
-
         prompt = (
-            f"Você é consultor sênior de eficiência energética da Trianon Gestão de Energia em Manaus/AM.\n"
-            f"Gere um DIAGNÓSTICO EXECUTIVO DE VENDAS para o cliente abaixo. "
-            f"O objetivo é convencer o cliente a contratar nossos serviços. "
-            f"Seja específico, use os números reais, mostre o problema e a solução.\n\n"
-            f"DADOS:\n"
-            f"- Cliente: {nome} | UC: {uc} | Subgrupo: {f0.get('subgrupo','?')} | Modalidade: {f0.get('modalidade','?')}\n"
-            f"- Demanda: {f'{dem_ctda} kW contratada / {dem_medi} kW medida ({util_dem} utilização)' if dem_ctda else 'não disponível'}\n"
-            f"- Custo médio: R$ {custo_medio:,.2f}/mês | Gasto 12 meses: R$ {custo_total:,.2f}\n"
-            f"- Consumo médio: {round(consumo_medio):,} kWh/mês\n"
-            f"- Score eficiência: {a0.get('score_eficiencia','?')}/100\n"
+            f"Você é especialista em eficiência energética no Brasil, "
+            f"focado em clientes da Amazonas Energia em Manaus.\n\n"
+            f"Gere um DIAGNÓSTICO EXECUTIVO COMPLETO da UC abaixo. "
+            f"Profissional, direto, orientado a negócios.\n\n"
+            f"DADOS DA UC:\n"
+            f"- Cliente: {nome}\n"
+            f"- UC: {uc}\n"
+            f"- Subgrupo: {f0.get('subgrupo','?')} | Modalidade: {f0.get('modalidade','?')}\n"
+            f"- Demanda Contratada: {f'{dem_ctda} kW' if dem_ctda else 'não disponível'}\n"
+            f"- Demanda Medida: {f'{dem_medi} kW' if dem_medi else 'não disponível'}\n"
+            f"- Utilização da Demanda: {utilizacao}\n"
+            f"- Consumo Médio: {round(consumo_medio):,} kWh/mês\n"
+            f"- Custo Médio: R$ {custo_medio:,.2f}/mês\n"
+            f"- Gasto 12 meses: R$ {custo_total:,.2f}\n"
+            f"- Score Eficiência: {a0.get('score_eficiencia','?')}/100\n"
+            f"- Geração Distribuída: {'SIM' if has_gd else 'Não detectada'}\n"
+            f"- Energia Reativa: {'SIM — cobranças detectadas' if has_reativo else 'Normal'}\n"
+            f"- Elegível Mercado Livre: {'SIM' if eleg_ml else 'Verificar'}\n"
             f"- Alertas: {alertas_txt}\n"
-            f"- GD: {'SIM' if has_gd else 'Não'} | Reativo: {'SIM' if has_reativo else 'Normal'} | Elegível ML: {'SIM' if elegivel_ml else 'Não'}\n"
             f"- Análise anterior: {analise_ant}\n\n"
-            f"ESTRUTURE A ANÁLISE POR SERVIÇO DO CONTRATO (use ## para cada seção):\n\n"
-            f"## 1. Gestão de Energia Completa\n"
-            f"[Situação atual do enquadramento tarifário, eficiência, o que vamos revisar e resultado esperado]\n\n"
-            f"## 2. Auditoria Retroativa (120 meses)\n"
-            f"[Irregularidades identificadas, potencial de recuperação, base legal Lei 14.385/2022]\n\n"
-            f"## 3. Revisão Junto à Distribuidora\n"
-            f"[Demanda, reativo, COSIP, modalidade — o que está errado e o que vamos corrigir]\n\n"
-            f"## 4. Vistoria Técnica\n"
-            f"[O que vamos inspecionar e por quê é importante para esta UC]\n\n"
-        )
-        if elegivel_ml:
-            prompt += (
-                f"## 5. Migração para o Mercado Livre (ACL)\n"
-                f"[Elegibilidade, economia potencial estimada, próximos passos]\n\n"
-            )
-        if has_gd:
-            prompt += (
-                f"## {'6' if elegivel_ml else '5'}. Otimização de Geração Distribuída\n"
-                f"[Situação atual do sistema GD, créditos, compensação entre UCs]\n\n"
-            )
-        prompt += (
-            f"## Resumo Financeiro\n"
-            f"[Gasto atual, economia identificada, investimento no serviço, ROI]\n\n"
-            f"## Recomendação\n"
-            f"[Por que contratar agora, sem risco, modelo de remuneração por resultado]\n\n"
-            f"Use números reais. Seja direto e persuasivo. Máximo 800 palavras."
+            f"ESTRUTURA OBRIGATÓRIA (use markdown ## para seções):\n"
+            f"## 🔍 Diagnóstico Atual\n"
+            f"## ⚡ Oportunidades Identificadas\n"
+            f"## 🚨 Ações Urgentes\n"
+            f"## 🏭 Adequação ao Mercado Livre\n"
+            f"## 📋 Escopo de Serviços Recomendado\n"
+            f"## 💰 Estimativa de Resultado\n"
+            f"## 📅 Próximos Passos\n\n"
+            f"Use os números reais. Convença o cliente a fechar contrato com a Trianon Gestão de Energia."
         )
 
         openai_key = os.environ.get("OPENAI_API_KEY", "")
-        if not openai_key:
-            return web.json_response({"error": "OPENAI_API_KEY não configurada"}, status=500)
-
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 "https://api.openai.com/v1/chat/completions",
@@ -271,10 +258,6 @@ async def handle_analise_uc(request: web.Request) -> web.Response:
                 }
             )
             data = resp.json()
-            if "error" in data:
-                raise Exception(f"OpenAI error: {data['error'].get('message','unknown')}")
-            if "choices" not in data or not data["choices"]:
-                raise Exception(f"OpenAI resposta inesperada: {str(data)[:200]}")
             text = data["choices"][0]["message"]["content"]
 
         logger.info(f"[API] Análise gerada para UC {uc} — {len(text)} chars")
@@ -298,12 +281,65 @@ def _inferir_modelo(alertas: list) -> str:
     return "assinatura"
 
 
+async def handle_estudo_uc(request: web.Request) -> web.Response:
+    """Gera Estudo Técnico + Proposta Comercial em PDF para uma UC."""
+    uc = request.match_info.get("uc", "")
+    if not uc:
+        return web.json_response({"error": "uc obrigatória"}, status=400)
+
+    if not PPTX_DISPONIVEL:
+        return web.json_response({"error": "gerar_estudo não disponível no servidor"}, status=500)
+
+    try:
+        import os
+        from src.db.client import SupabaseClient
+
+        db = SupabaseClient()
+        loop = asyncio.get_event_loop()
+
+        def _buscar():
+            faturas = db._client.table("faturas_parsed").select("*").eq("uc", uc)\
+                .order("mes_referencia", desc=True).limit(12).execute().data or []
+            alertas = db._client.table("alertas_de_fatura").select("*").eq("uc", uc)\
+                .eq("resolvido", False).execute().data or []
+            clientes = db._client.table("clientes").select("cnpj")\
+                .contains("ucs", [uc]).limit(1).execute().data or []
+            cnpj = clientes[0].get("cnpj", "") if clientes else ""
+            return faturas, alertas, cnpj
+
+        faturas, alertas, cnpj = await loop.run_in_executor(None, _buscar)
+
+        if not faturas:
+            return web.json_response({"error": f"UC {uc} não encontrada"}, status=404)
+
+        buf = gerar_estudo_pptx(faturas, alertas, cnpj=cnpj)
+
+        nome = faturas[0].get("cliente_nome", uc).replace(" ", "_")[:30]
+        filename = f"Estudo_Tecnico_{nome}.pdf"
+
+        logger.info(f"[API] Estudo PDF gerado para UC {uc} — {len(faturas)} faturas")
+
+        return web.Response(
+            body=buf.read(),
+            content_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Access-Control-Allow-Origin": "*",
+            }
+        )
+
+    except Exception as exc:
+        logger.error(f"[API] Erro estudo UC {uc}: {exc}", exc_info=True)
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 async def criar_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/health",                   handle_health)
     app.router.add_get("/relatorio/{fatura_id}",    handle_relatorio_fatura)
     app.router.add_get("/relatorio/uc/{uc}",        handle_relatorio_uc)
     app.router.add_get("/analise/uc/{uc}",          handle_analise_uc)
+    app.router.add_get("/estudo/uc/{uc}",           handle_estudo_uc)
 
     # CORS para o dashboard Vercel
     async def cors_middleware(app, handler):
