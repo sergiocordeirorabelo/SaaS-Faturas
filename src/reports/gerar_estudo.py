@@ -90,21 +90,21 @@ def _analisar(faturas,alertas=None):
     # Pontos detalhados
     pts=[]
     if ut<85 and dcm>0:
-        pts.append({"n":"1","t":"Demanda contratada atual.","d":f"Contratada: {_fi(dcm)} kW | Medida máx: {_fi(dmx)} kW | Utilização: {ut}%. Demanda não utilizada recorrente, muito desperdício todos os meses. Podendo ser ajustada com sazonalidade."})
+        pts.append({"t":"Demanda contratada atual.","d":f"Contratada: {_fi(dcm)} kW | Medida máx: {_fi(dmx)} kW | Utilização: {ut}%. Demanda não utilizada recorrente, muito desperdício todos os meses. Podendo ser ajustada com sazonalidade."})
     if dr>0:
-        pts.append({"n":"2","t":"Energia reativa (UFER).","d":f"Total faturado no período: R$ {_f(dr)}. Multa devido ao baixo fator de potência, corrigir com Banco de Capacitores e estudar o Filtro Capacitivo para proteção dos equipamentos."})
+        pts.append({"t":"Energia reativa (UFER).","d":f"Total faturado no período: R$ {_f(dr)}. Multa devido ao baixo fator de potência, corrigir com Banco de Capacitores e estudar o Filtro Capacitivo para proteção dos equipamentos."})
     if gd>0:
-        pts.append({"n":"3","t":"Geração Distribuída ativa.","d":f"Créditos acumulados: R$ {_f(gd)}. Verificar potencial de expansão do sistema para aumentar a cobertura e reduzir custo."})
+        pts.append({"t":"Geração Distribuída ativa.","d":f"Créditos acumulados: R$ {_f(gd)}. Verificar potencial de expansão do sistema para aumentar a cobertura e reduzir custo."})
     if cosip_m>300:
-        pts.append({"n":"4","t":f"COSIP elevada (R$ {_f(cosip_m)}/mês).","d":f"Total no período: R$ {_f(cosip_t)}. Contribuição de Iluminação Pública pode estar acima do enquadramento. Contestar junto à Prefeitura."})
+        pts.append({"t":f"COSIP elevada (R$ {_f(cosip_m)}/mês).","d":f"Total no período: R$ {_f(cosip_t)}. Contribuição de Iluminação Pública pode estar acima do enquadramento. Contestar junto à Prefeitura."})
     if dm2>0:
-        pts.append({"n":"5","t":"Multas por atrasos de pagamentos.","d":f"Total: R$ {_f(dm2)} no período. Requer uma gestão ativa nas contas para eliminação total."})
+        pts.append({"t":"Multas por atrasos de pagamentos.","d":f"Total: R$ {_f(dm2)} no período. Requer uma gestão ativa nas contas para eliminação total."})
     if el:
-        pts.append({"n":"6","t":"Elegível para Mercado Livre.","d":f"{f0.get('subgrupo','?')} com {_fi(dcm)} kW. Desde 01/2024 todo Grupo A é elegível. Economia de 15-25% na tarifa de energia via comercializadora."})
-    # Alertas extras
+        pts.append({"t":"Elegível para Mercado Livre.","d":f"{f0.get('subgrupo','?')} com {_fi(dcm)} kW. Desde 01/2024 todo Grupo A é elegível. Economia de 15-25% na tarifa de energia via comercializadora."})
     for al in alertas:
         t=al.get("titulo","")
-        if t and len(pts)<6: pts.append({"n":str(len(pts)+1),"t":t,"d":al.get("descricao","")})
+        if t and len(pts)<6: pts.append({"t":t,"d":al.get("descricao","")})
+    for i,pt in enumerate(pts): pt["n"]=str(i+1)
     # Ações
     acoes=[("Auditoria\nRetroativa\ndos últimos\n120 meses","Buscar pagamentos\nindevidos e pedir\ndevolução em dobro"),
            ("Ajustar a\ndemanda\ncontratada\nociosa","Se não houver\naumento do consumo,\najustar")]
@@ -192,7 +192,7 @@ def _s3(p,d):
             val=float(item.get("valor")or 0)
             lab=f"{desc} {_fi(qtd)} a {_f(tar,6)}" if qtd and tar else desc
             tbl.cell(i+1,0).text=lab
-            tbl.cell(i+1,1).text=f"{tar:.6f}" if tar else ""
+            tbl.cell(i+1,1).text=_f(tar,6) if tar else ""
             tbl.cell(i+1,2).text=f"{_f(val)}"
             for j in range(3):
                 pp=tbl.cell(i+1,j).text_frame.paragraphs[0];pp.font.size=Pt(8);pp.font.name="Calibri"
@@ -257,8 +257,11 @@ def _s4(p,d):
         _tx(s,pc,7,y,0.8,0.25,12,c=C.txt,al=PP_ALIGN.RIGHT);y+=0.35
     _rt(s,0.8,y,7,0.02,C.navy);y+=0.15
     # Total com destaque
-    _tx(s,f"R$ {_f(d['da'])}",4.5,y,2.3,0.4,16,True,c=C.red,al=PP_ALIGN.RIGHT)
+    _tx(s,f"R$ {_f(d['dt'])}",4.5,y,2.3,0.4,14,True,c=C.txt,al=PP_ALIGN.RIGHT)
     _tx(s,"100%",7,y,0.8,0.35,13,c=C.txt,al=PP_ALIGN.RIGHT)
+    y+=0.5
+    _tx(s,"PROJEÇÃO ANUAL DO DESPERDÍCIO:",0.5,y,7,0.3,11,True,c=C.red);y+=0.4
+    _tx(s,f"R$ {_f(d['da'])}",4.5,y,2.3,0.4,16,True,c=C.red,al=PP_ALIGN.RIGHT)
     # Círculo vermelho ao redor
     sh=s.shapes.add_shape(MSO_SHAPE.OVAL,Inches(4.3),Inches(y-0.05),Inches(2.7),Inches(0.5))
     sh.fill.background();sh.line.color.rgb=C.red;sh.line.width=Pt(2)
