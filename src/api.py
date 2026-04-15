@@ -359,19 +359,22 @@ async def handle_estudo_uc(request: web.Request) -> web.Response:
 
 
 async def handle_diagnostico(request: web.Request) -> web.Response:
-    """Recebe PDF de fatura via upload, faz parse IA + análise completa."""
+    """Recebe PDF de fatura via upload, faz parse IA + análise + salva no Supabase + cadastra cliente."""
     try:
-        import tempfile, os, json
+        import tempfile, os, json, base64
         from src.parsers.parser_fatura_ia import parse_pdf_ia, _render_pdf_screenshot
+        from src.db.client import SupabaseClient
 
         reader = await request.multipart()
         pdf_bytes = None
+        pdf_filename = "fatura.pdf"
         while True:
             part = await reader.next()
             if part is None:
                 break
             if part.name == 'pdf' or (part.filename and part.filename.endswith('.pdf')):
                 pdf_bytes = await part.read()
+                pdf_filename = part.filename or "fatura.pdf"
                 break
 
         if not pdf_bytes:
@@ -387,15 +390,16 @@ async def handle_diagnostico(request: web.Request) -> web.Response:
             # Parse com IA
             dados = await parse_pdf_ia(tmp_path)
 
-            # Screenshot para referência
+            # Screenshot
+            screenshot_b64 = None
             try:
                 ss = _render_pdf_screenshot(tmp_path, page_num=0, dpi=2.0)
-                import base64
-                dados["screenshot_b64"] = base64.b64encode(ss).decode("utf-8")
+                screenshot_b64 = base64.b64encode(ss).decode("utf-8")
+                dados["screenshot_b64"] = screenshot_b64
             except:
                 dados["screenshot_b64"] = None
 
-            # Análise
+            # Análise de regras
             try:
                 from src.parsers.analyzer_fatura import analisar_fatura
                 analise = analisar_fatura(dados)
@@ -407,14 +411,174 @@ async def handle_diagnostico(request: web.Request) -> web.Response:
             # Análise textual IA
             try:
                 from src.ai.ai_provider import gerar_analise_textual
-                loop = asyncio.get_event_loop()
                 texto_ia = await gerar_analise_textual(dados, dados.get("analise", {}))
                 if texto_ia:
                     dados["analise_textual"] = texto_ia
             except:
                 pass
 
-            logger.info(f"[Diag] ✓ UC {dados.get('uc','?')} {dados.get('mes_referencia','?')} — parser: {dados.get('source_parser','?')}")
+            uc = dados.get("uc", "")
+            mes_ref = dados.get("mes_referencia", "")
+            nome = dados.get("cliente_nome", "")
+            logger.info(f"[Diag] ✓ UC {uc} {mes_ref} — parser: {dados.get('source_parser','?')}")
+
+            # ══════════════════════════════════════════════════════════════
+            # SALVAR NO SUPABASE (fatura + cliente)
+            # ══════════════════════════════════════════════════════════════
+            db = SupabaseClient()
+            loop = asyncio.get_event_loop()
+            fatura_id = None
+            cliente_id = None
+
+            def _salvar():
+                nonlocal fatura_id, cliente_id
+
+                # 1. Upload PDF pro Storage
+                storage_path = ""
+                if uc and mes_ref:
+                    uc_clean = uc.replace("-", "")
+                    mes_clean = mes_ref.replace("/", "-")
+                    storage_path = f"faturas/{uc_clean}/{mes_clean}_detalhada.pdf"
+                    try:
+                        db._client.storage.from_("Faturas").upload(
+                            storage_path, pdf_bytes,
+                            {"content-type": "application/pdf", "upsert": "true"}
+                        )
+                    except:
+                        try:
+                            db._client.storage.from_("Faturas").update(
+                                storage_path, pdf_bytes,
+                                {"content-type": "application/pdf"}
+                            )
+                        except Exception as ue:
+                            logger.warning(f"[Diag] Upload storage falhou: {ue}")
+                            storage_path = ""
+
+                # 2. Salva fatura parseada
+                fatura_data = {
+                    "uc": uc,
+                    "mes_referencia": mes_ref,
+                    "cliente_nome": nome,
+                    "subgrupo": dados.get("subgrupo", ""),
+                    "modalidade": dados.get("modalidade", ""),
+                    "grupo": dados.get("grupo", ""),
+                    "total_a_pagar": float(dados.get("total_a_pagar") or 0),
+                    "consumo_total_kwh": float(dados.get("consumo_total_kwh") or 0),
+                    "consumo_ponta_kwh": float(dados.get("consumo_ponta_kwh") or 0),
+                    "consumo_fora_ponta_kwh": float(dados.get("consumo_fora_ponta_kwh") or 0),
+                    "demanda_contratada_ponta_kw": float(dados.get("demanda_contratada_ponta_kw") or 0),
+                    "demanda_contratada_fora_ponta_kw": float(dados.get("demanda_contratada_fora_ponta_kw") or 0),
+                    "demanda_medida_ponta_kw": float(dados.get("demanda_medida_ponta_kw") or 0),
+                    "demanda_medida_fora_ponta_kw": float(dados.get("demanda_medida_fora_ponta_kw") or 0),
+                    "ufer_fora_ponta_kvarh": float(dados.get("ufer_fora_ponta_kvarh") or 0),
+                    "cosip_valor": float(dados.get("cosip_valor") or 0),
+                    "bandeira_tarifaria": dados.get("bandeira_tarifaria", ""),
+                    "tarifa_demanda": float(dados.get("tarifa_demanda") or 0),
+                    "itens_faturados": dados.get("itens_faturados", []),
+                    "source_pdf_path": storage_path,
+                    "source_parser": dados.get("source_parser", "upload"),
+                }
+                # Remove chaves com valor None
+                fatura_data = {k: v for k, v in fatura_data.items() if v is not None}
+
+                try:
+                    # Upsert por uc+mes_referencia
+                    existing = db._client.table("faturas_parsed").select("id")\
+                        .eq("uc", uc).eq("mes_referencia", mes_ref).limit(1).execute().data
+                    if existing:
+                        fatura_id = existing[0]["id"]
+                        db._client.table("faturas_parsed").update(fatura_data)\
+                            .eq("id", fatura_id).execute()
+                    else:
+                        r = db._client.table("faturas_parsed").insert(fatura_data).execute()
+                        fatura_id = r.data[0]["id"] if r.data else None
+                except Exception as fe:
+                    logger.warning(f"[Diag] Salvar fatura: {fe}")
+
+                # 3. Cadastra/atualiza cliente
+                if uc and nome:
+                    try:
+                        cnpj = dados.get("cnpj", "") or ""
+                        # Busca por UC ou CNPJ
+                        q = db._client.table("clientes").select("id,ucs")\
+                            .contains("ucs", [uc]).limit(1).execute().data
+                        if not q and cnpj:
+                            q = db._client.table("clientes").select("id,ucs")\
+                                .eq("cnpj", cnpj).limit(1).execute().data
+
+                        if q:
+                            # Atualiza
+                            cl = q[0]
+                            ucs = cl.get("ucs", []) or []
+                            if uc not in ucs:
+                                ucs.append(uc)
+                            db._client.table("clientes").update({
+                                "nome": nome, "ucs": ucs,
+                                "subgrupo": dados.get("subgrupo", ""),
+                                "modalidade": dados.get("modalidade", ""),
+                                "demanda_kw": float(dados.get("demanda_contratada_fora_ponta_kw") or 0),
+                                "custo_medio": float(dados.get("total_a_pagar") or 0),
+                            }).eq("id", cl["id"]).execute()
+                            cliente_id = cl["id"]
+                        else:
+                            # Cria novo
+                            r = db._client.table("clientes").insert({
+                                "nome": nome, "cnpj": cnpj, "ucs": [uc],
+                                "subgrupo": dados.get("subgrupo", ""),
+                                "modalidade": dados.get("modalidade", ""),
+                                "demanda_kw": float(dados.get("demanda_contratada_fora_ponta_kw") or 0),
+                                "custo_medio": float(dados.get("total_a_pagar") or 0),
+                                "status": "prospecto",
+                            }).execute()
+                            cliente_id = r.data[0]["id"] if r.data else None
+                    except Exception as ce:
+                        logger.warning(f"[Diag] Cadastrar cliente: {ce}")
+
+                # 4. Salva análise
+                if fatura_id and dados.get("analise"):
+                    try:
+                        an = dados["analise"]
+                        analise_data = {
+                            "fatura_id": fatura_id, "uc": uc, "mes_referencia": mes_ref,
+                            "score_eficiencia": an.get("score_eficiencia"),
+                            "potencial_economia_mensal": an.get("potencial_economia_mensal"),
+                            "potencial_economia_anual": an.get("potencial_economia_anual"),
+                            "resumo_executivo": an.get("resumo_executivo", ""),
+                            "alertas": json.dumps(an.get("alertas", [])),
+                            "analise_claude": dados.get("analise_textual", ""),
+                        }
+                        db._client.table("faturas_analise").upsert(
+                            analise_data, on_conflict="fatura_id"
+                        ).execute()
+                    except Exception as ae2:
+                        logger.warning(f"[Diag] Salvar análise: {ae2}")
+
+                # 5. Salva alertas
+                if fatura_id and dados.get("analise", {}).get("alertas"):
+                    try:
+                        for al in dados["analise"]["alertas"]:
+                            al_data = {
+                                "fatura_id": fatura_id, "uc": uc,
+                                "titulo": al.get("titulo", ""),
+                                "descricao": al.get("descricao", ""),
+                                "severidade": al.get("severidade", "info"),
+                                "codigo": al.get("codigo", ""),
+                                "economia_mensal_r": al.get("economia_mensal_r"),
+                                "economia_anual_r": al.get("economia_anual_r"),
+                                "acao_recomendada": al.get("acao_recomendada", ""),
+                            }
+                            db._client.table("alertas_de_fatura").insert(al_data).execute()
+                    except Exception as ale:
+                        logger.warning(f"[Diag] Salvar alertas: {ale}")
+
+            await loop.run_in_executor(None, _salvar)
+
+            dados["_saved"] = {
+                "fatura_id": str(fatura_id) if fatura_id else None,
+                "cliente_id": str(cliente_id) if cliente_id else None,
+                "storage_path": storage_path if uc else None,
+            }
+            logger.info(f"[Diag] Salvo: fatura={fatura_id}, cliente={cliente_id}")
 
             return web.json_response(dados, headers={"Access-Control-Allow-Origin": "*"})
 
