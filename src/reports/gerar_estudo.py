@@ -164,20 +164,23 @@ def gerar_estudo_pdf(faturas,alertas=None,cnpj="",valor_mensal=500,comissao=30,p
     _replace_all(prs,"0502485-4",d["uc"])
 
     # ═══════════════════════════════════════════════════════════════════════
-    # SLIDE 3: FATURA — screenshot real + pontos de atenção dinâmicos
+    # SLIDE 3: FATURA — SEMPRE remove imagem do Cometais, coloca do cliente
     # ═══════════════════════════════════════════════════════════════════════
-    if pdf_screenshot_bytes:
-        try:
-            s3 = list(prs.slides)[2]
-            shapes3 = list(s3.shapes)
-            old_img = shapes3[0]  # IMG da fatura do Cometais
-            left,top,width,height = old_img.left,old_img.top,old_img.width,old_img.height
-            sp = old_img._element
-            sp.getparent().remove(sp)
-            s3.shapes.add_picture(io.BytesIO(pdf_screenshot_bytes),left,top,width,height)
-            logger.info("[Estudo] Screenshot da fatura real embutido")
-        except Exception as e:
-            logger.warning(f"[Estudo] Erro screenshot: {e}")
+    try:
+        s3 = list(prs.slides)[2]
+        # Encontra imagem grande da fatura (Picture > 3")
+        for shape in list(s3.shapes):
+            if shape.shape_type == 13 and shape.width > Inches(3):
+                left,top,width,height = shape.left,shape.top,shape.width,shape.height
+                shape._element.getparent().remove(shape._element)
+                if pdf_screenshot_bytes:
+                    s3.shapes.add_picture(io.BytesIO(pdf_screenshot_bytes),left,top,width,height)
+                    logger.info("[Estudo] Screenshot da fatura do cliente embutido")
+                else:
+                    logger.info("[Estudo] Imagem Cometais removida (sem screenshot)")
+                break
+    except Exception as e:
+        logger.warning(f"[Estudo] Erro slide 3: {e}")
 
     # Pontos de atenção (6 posições no template)
     _replace_all(prs,"Demanda contratada atual.",d["pts"][0][:50])
