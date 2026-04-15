@@ -358,13 +358,82 @@ async def handle_estudo_uc(request: web.Request) -> web.Response:
         return web.json_response({"error": str(exc)}, status=500)
 
 
+async def handle_diagnostico(request: web.Request) -> web.Response:
+    """Recebe PDF de fatura via upload, faz parse IA + análise completa."""
+    try:
+        import tempfile, os, json
+        from src.parsers.parser_fatura_ia import parse_pdf_ia, _render_pdf_screenshot
+
+        reader = await request.multipart()
+        pdf_bytes = None
+        while True:
+            part = await reader.next()
+            if part is None:
+                break
+            if part.name == 'pdf' or (part.filename and part.filename.endswith('.pdf')):
+                pdf_bytes = await part.read()
+                break
+
+        if not pdf_bytes:
+            return web.json_response({"error": "Envie um arquivo PDF"}, status=400)
+
+        # Salva em temp
+        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp.write(pdf_bytes)
+        tmp.close()
+        tmp_path = tmp.name
+
+        try:
+            # Parse com IA
+            dados = await parse_pdf_ia(tmp_path)
+
+            # Screenshot para referência
+            try:
+                ss = _render_pdf_screenshot(tmp_path, page_num=0, dpi=2.0)
+                import base64
+                dados["screenshot_b64"] = base64.b64encode(ss).decode("utf-8")
+            except:
+                dados["screenshot_b64"] = None
+
+            # Análise
+            try:
+                from src.parsers.analyzer_fatura import analisar_fatura
+                analise = analisar_fatura(dados)
+                dados["analise"] = analise
+            except Exception as ae:
+                logger.warning(f"[Diag] Análise falhou: {ae}")
+                dados["analise"] = {}
+
+            # Análise textual IA
+            try:
+                from src.ai.ai_provider import gerar_analise_textual
+                loop = asyncio.get_event_loop()
+                texto_ia = await gerar_analise_textual(dados, dados.get("analise", {}))
+                if texto_ia:
+                    dados["analise_textual"] = texto_ia
+            except:
+                pass
+
+            logger.info(f"[Diag] ✓ UC {dados.get('uc','?')} {dados.get('mes_referencia','?')} — parser: {dados.get('source_parser','?')}")
+
+            return web.json_response(dados, headers={"Access-Control-Allow-Origin": "*"})
+
+        finally:
+            os.unlink(tmp_path)
+
+    except Exception as exc:
+        logger.error(f"[Diag] Erro: {exc}", exc_info=True)
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 async def criar_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(client_max_size=20*1024*1024)  # 20MB max upload
     app.router.add_get("/health",                   handle_health)
     app.router.add_get("/relatorio/{fatura_id}",    handle_relatorio_fatura)
     app.router.add_get("/relatorio/uc/{uc}",        handle_relatorio_uc)
     app.router.add_get("/analise/uc/{uc}",          handle_analise_uc)
     app.router.add_get("/estudo/uc/{uc}",           handle_estudo_uc)
+    app.router.add_post("/diagnostico",             handle_diagnostico)
 
     # CORS para o dashboard Vercel
     async def cors_middleware(app, handler):
@@ -372,7 +441,7 @@ async def criar_app() -> web.Application:
             if request.method == "OPTIONS":
                 return web.Response(headers={
                     "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "GET, OPTIONS",
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
                     "Access-Control-Allow-Headers": "Content-Type",
                 })
             response = await handler(request)
