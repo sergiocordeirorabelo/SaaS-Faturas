@@ -429,9 +429,10 @@ async def handle_diagnostico(request: web.Request) -> web.Response:
             loop = asyncio.get_event_loop()
             fatura_id = None
             cliente_id = None
+            storage_path = ""
 
             def _salvar():
-                nonlocal fatura_id, cliente_id
+                nonlocal fatura_id, cliente_id, storage_path
 
                 # 1. Upload PDF pro Storage
                 storage_path = ""
