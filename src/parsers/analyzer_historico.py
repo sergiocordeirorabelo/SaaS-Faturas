@@ -338,13 +338,8 @@ class AnalisadorHistorico:
                 "Manter gestão preventiva dos vencimentos."
             )
 
-        # pt5 — ICMS ou Mercado Livre ou multas
-        if icms > 0:
-            pts.append(
-                f"ICMS sobre TUSD: R$ {_f(icms)} potencialmente recuperável. "
-                "Elaborar laudo técnico para separar produção."
-            )
-        elif el:
+        # pt5 — Mercado Livre ou auditoria (ICMS já aparece em Oportunidades Adicionais)
+        if el:
             pts.append(
                 f"Elegível para o Mercado Livre ({f0.get('subgrupo','?')}, "
                 f"{_fi(dcm)} kW). Economia estimada de 15-25% via comercializadora."
