@@ -290,47 +290,27 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-
     </div>
   </div>
 
-  <!-- ══ DIAGNÓSTICO (upload de faturas) ══ -->
+  <!-- ══ DIAGNÓSTICO (upload de fatura) ══ -->
   <div id="page-diagnostico" class="page">
-    <div style="max-width:860px;margin:0 auto">
-
+    <div style="max-width:1100px;margin:0 auto">
       <!-- Upload area -->
-      <div id="diag-upload-area"
-           style="border:2px dashed var(--border2);border-radius:16px;padding:48px 24px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg2)"
+      <div id="diag-upload-area" style="border:2px dashed var(--border2);border-radius:16px;padding:48px 24px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg2)"
            onclick="document.getElementById('diag-file-input').click()"
            ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='var(--blue-bg)'"
            ondragleave="this.style.borderColor='var(--border2)';this.style.background='var(--bg2)'"
-           ondrop="event.preventDefault();this.style.borderColor='var(--border2)';this.style.background='var(--bg2)';diagSelecionarArquivos(event.dataTransfer.files)">
-        <div style="font-size:48px;margin-bottom:16px">📂</div>
-        <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px">Envie as faturas do cliente</div>
-        <div style="font-size:13px;color:var(--muted);margin-bottom:6px">Arraste os PDFs aqui ou clique para selecionar</div>
-        <div style="font-size:11px;color:var(--hint)">Mínimo 1 · Máximo 12 faturas · PDF da Amazonas Energia · Máx 20MB cada</div>
-        <input type="file" id="diag-file-input" accept=".pdf" multiple style="display:none" onchange="diagSelecionarArquivos(this.files)">
+           ondrop="event.preventDefault();this.style.borderColor='var(--border2)';this.style.background='var(--bg2)';handleDiagUpload(event.dataTransfer.files[0])">
+        <div style="font-size:48px;margin-bottom:16px">📄</div>
+        <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:8px">Envie a fatura do cliente</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Arraste o PDF aqui ou clique para selecionar</div>
+        <div style="font-size:11px;color:var(--hint)">PDF da fatura detalhada da Amazonas Energia · Máximo 20MB</div>
+        <input type="file" id="diag-file-input" accept=".pdf" style="display:none" onchange="handleDiagUpload(this.files[0])">
       </div>
 
-      <!-- Preview da seleção -->
-      <div id="diag-preview" style="display:none;margin-top:16px">
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:16px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-            <div style="font-size:13px;font-weight:700;color:var(--text)" id="diag-preview-titulo">0 faturas selecionadas</div>
-            <button class="btn" onclick="diagLimpar()" style="font-size:11px;padding:4px 12px">✕ Limpar</button>
-          </div>
-          <div id="diag-lista-arquivos" style="display:flex;flex-direction:column;gap:6px"></div>
-        </div>
-        <button class="btn green" onclick="diagProcessar()" style="width:100%;padding:14px;font-size:14px;font-weight:700;border-radius:10px">
-          ⚡ Processar e Analisar Faturas
-        </button>
-      </div>
-
-      <!-- Progresso -->
-      <div id="diag-progresso" style="display:none;margin-top:16px">
-        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:24px">
-          <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:16px" id="diag-prog-titulo">Processando faturas...</div>
-          <div style="background:var(--bg3);border-radius:8px;overflow:hidden;height:8px;margin-bottom:16px">
-            <div id="diag-prog-barra" style="height:100%;background:var(--blue);transition:width .4s;width:0%"></div>
-          </div>
-          <div id="diag-prog-lista" style="display:flex;flex-direction:column;gap:8px"></div>
-        </div>
+      <!-- Loading -->
+      <div id="diag-loading" style="display:none;text-align:center;padding:60px">
+        <div class="spinner" style="margin:0 auto 16px"></div>
+        <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px" id="diag-loading-title">Analisando fatura...</div>
+        <div style="font-size:12px;color:var(--muted)" id="diag-loading-sub">Parser IA extraindo todos os campos do PDF</div>
       </div>
 
       <!-- Resultado -->
@@ -3351,204 +3331,194 @@ async function abrirEstudoTecnico(uc,limit){
 }
 
 // ── DIAGNÓSTICO (upload) ─────────────────────────────────────────────────
-// ── Diagnóstico multi-PDF ──────────────────────────────────────────────────
-var _diagArquivos = [];
+async function handleDiagUpload(file){
+  if(!file||!file.name.endsWith('.pdf')){alert('Selecione um arquivo PDF.');return;}
+  if(file.size>20*1024*1024){alert('Arquivo muito grande (máx 20MB).');return;}
 
-function diagSelecionarArquivos(files) {
-  var lista = Array.from(files).filter(function(f){ return f.name.endsWith('.pdf'); });
-  if(!lista.length){ alert('Selecione arquivos PDF.'); return; }
-  if(lista.length > 12){ alert('Máximo 12 faturas por vez.'); lista = lista.slice(0,12); }
-  var invalidos = lista.filter(function(f){ return f.size > 20*1024*1024; });
-  if(invalidos.length){ alert('Arquivo(s) acima de 20MB: ' + invalidos.map(function(f){return f.name;}).join(', ')); return; }
+  document.getElementById('diag-upload-area').style.display='none';
+  document.getElementById('diag-resultado').style.display='none';
+  var ld=document.getElementById('diag-loading');
+  ld.style.display='block';
+  document.getElementById('diag-loading-title').textContent='Analisando '+file.name+'...';
+  document.getElementById('diag-loading-sub').textContent='Parser IA extraindo todos os campos do PDF';
 
-  _diagArquivos = lista;
-  document.getElementById('diag-upload-area').style.display = 'none';
-  document.getElementById('diag-preview').style.display = 'block';
-  document.getElementById('diag-resultado').style.display = 'none';
-  document.getElementById('diag-progresso').style.display = 'none';
-
-  document.getElementById('diag-preview-titulo').textContent =
-    lista.length + ' fatura' + (lista.length > 1 ? 's' : '') + ' selecionada' + (lista.length > 1 ? 's' : '');
-
-  var H = '';
-  lista.forEach(function(f, i) {
-    var kb = Math.round(f.size / 1024);
-    H += '<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg3);border-radius:8px">'
-      + '<span style="font-size:16px">📄</span>'
-      + '<span style="font-size:12px;color:var(--text);flex:1">' + f.name + '</span>'
-      + '<span style="font-size:11px;color:var(--muted)">' + kb + ' KB</span>'
-      + '</div>';
-  });
-  document.getElementById('diag-lista-arquivos').innerHTML = H;
-}
-
-function diagLimpar() {
-  _diagArquivos = [];
-  document.getElementById('diag-upload-area').style.display = 'block';
-  document.getElementById('diag-preview').style.display = 'none';
-  document.getElementById('diag-progresso').style.display = 'none';
-  document.getElementById('diag-resultado').style.display = 'none';
-  document.getElementById('diag-file-input').value = '';
-}
-
-async function diagProcessar() {
-  if(!_diagArquivos.length){ alert('Nenhum arquivo selecionado.'); return; }
-
-  document.getElementById('diag-preview').style.display = 'none';
-  document.getElementById('diag-progresso').style.display = 'block';
-  document.getElementById('diag-resultado').style.display = 'none';
-
-  var total = _diagArquivos.length;
-  var erros = [];
-  var ultimoDado = null;
-  var listaEl = document.getElementById('diag-prog-lista');
-  var barraEl = document.getElementById('diag-prog-barra');
-  var tituloEl = document.getElementById('diag-prog-titulo');
-
-  // Cria itens de progresso
-  var H = '';
-  _diagArquivos.forEach(function(f, i) {
-    H += '<div id="diag-item-' + i + '" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--bg3);border-radius:8px">'
-      + '<span id="diag-icon-' + i + '" style="font-size:16px">⏳</span>'
-      + '<span style="font-size:12px;color:var(--text);flex:1">' + f.name + '</span>'
-      + '<span id="diag-status-' + i + '" style="font-size:11px;color:var(--muted)">Aguardando...</span>'
-      + '</div>';
-  });
-  listaEl.innerHTML = H;
-
-  for(var i = 0; i < total; i++) {
-    var f = _diagArquivos[i];
-    tituloEl.textContent = 'Processando ' + (i+1) + ' de ' + total + '...';
-    document.getElementById('diag-icon-' + i).textContent = '🔄';
-    document.getElementById('diag-status-' + i).textContent = 'Analisando...';
-    document.getElementById('diag-status-' + i).style.color = 'var(--blue)';
-
-    try {
-      var form = new FormData();
-      form.append('pdf', f);
-      var resp = await fetch(RW + '/diagnostico', { method:'POST', body:form, signal:AbortSignal.timeout(90000) });
-      if(!resp.ok) {
-        var e = await resp.json().catch(function(){ return {error:'Erro ' + resp.status}; });
-        throw new Error(e.error || 'Erro ' + resp.status);
-      }
-      var dados = await resp.json();
-      ultimoDado = dados;
-      document.getElementById('diag-icon-' + i).textContent = '✅';
-      document.getElementById('diag-status-' + i).textContent = dados.mes_referencia || 'OK';
-      document.getElementById('diag-status-' + i).style.color = 'var(--green)';
-    } catch(err) {
-      erros.push(f.name + ': ' + err.message);
-      document.getElementById('diag-icon-' + i).textContent = '❌';
-      document.getElementById('diag-status-' + i).textContent = err.message.slice(0,40);
-      document.getElementById('diag-status-' + i).style.color = 'var(--red, #ef4444)';
-    }
-
-    barraEl.style.width = Math.round((i+1) / total * 100) + '%';
-  }
-
-  // Finalizado
-  var sucessos = total - erros.length;
-  tituloEl.textContent = '✅ ' + sucessos + ' de ' + total + ' fatura(s) processada(s)';
-
-  if(ultimoDado) {
-    var uc = ultimoDado.uc || '';
-    var nome = ultimoDado.cliente_nome || 'Cliente';
-    var analise = ultimoDado.analise || {};
-    var score = analise.score_eficiencia || 0;
-    var ecoM = parseFloat(analise.potencial_economia_mensal || 0);
-    var ecoA = parseFloat(analise.potencial_economia_anual || 0);
-    var alertas = analise.alertas || [];
-    var resumo = analise.resumo_executivo || '';
-    var subgrupo = ultimoDado.subgrupo || '';
-    var modalidade = ultimoDado.modalidade || '';
-    var fmtV = function(v){ return parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2}); };
-    var scoreCor = score >= 80 ? 'var(--green)' : score >= 50 ? '#f59e0b' : '#ef4444';
-
-    document.getElementById('diag-resultado').style.display = 'block';
-    var resH = '';
-
-    if(erros.length) {
-      resH += '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:12px;color:#991b1b">'
-        + '⚠️ ' + erros.length + ' erro(s): ' + erros.join(' | ') + '</div>';
-    }
-
-    resH += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px">';
-    resH += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">';
-    resH += '<div><div style="font-size:18px;font-weight:700;color:var(--text)">' + nome + '</div>';
-    resH += '<div style="font-size:12px;color:var(--muted);margin-top:3px">UC ' + uc
-      + (subgrupo ? ' · ' + subgrupo : '') + (modalidade ? ' ' + modalidade : '')
-      + ' · ' + sucessos + ' fatura(s)</div></div>';
-    resH += '<div style="text-align:center;background:var(--bg3);border-radius:10px;padding:10px 18px;flex-shrink:0">';
-    resH += '<div style="font-size:26px;font-weight:700;color:' + scoreCor + '">' + score + '</div>';
-    resH += '<div style="font-size:10px;color:var(--muted)">Score</div></div></div>';
-
-    if(ecoA > 0) {
-      resH += '<div style="background:var(--bg3);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-around;text-align:center">';
-      resH += '<div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Economia potencial/mês</div>'
-        + '<div style="font-size:18px;font-weight:700;color:var(--green)">R$ ' + fmtV(ecoM) + '</div></div>';
-      resH += '<div style="width:1px;background:var(--border)"></div>';
-      resH += '<div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Economia potencial/ano</div>'
-        + '<div style="font-size:18px;font-weight:700;color:var(--green)">R$ ' + fmtV(ecoA) + '</div></div>';
-      resH += '</div>';
-    }
-
-    if(alertas.length) {
-      resH += '<div style="margin-bottom:16px">';
-      resH += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Alertas identificados</div>';
-      alertas.slice(0, 5).forEach(function(al) {
-        var cor = al.severidade === 'critico' ? '#ef4444' : al.severidade === 'atencao' ? '#f59e0b' : '#6366f1';
-        resH += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px;padding:10px 12px;background:var(--bg3);border-radius:8px;border-left:3px solid ' + cor + '">';
-        resH += '<div style="font-size:12px;font-weight:600;color:var(--text);flex:1">' + (al.titulo || '') + '</div>';
-        if(al.economia_mensal_r) resH += '<div style="font-size:11px;color:var(--green);white-space:nowrap;font-weight:600">R$ ' + fmtV(al.economia_mensal_r) + '/mês</div>';
-        resH += '</div>';
-      });
-      resH += '</div>';
-    }
-
-    if(resumo) {
-      resH += '<div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:16px;padding:12px;background:var(--bg3);border-radius:8px">' + resumo + '</div>';
-    }
-
-    resH += '<div style="display:flex;gap:10px;flex-wrap:wrap">';
-    resH += '<button class="btn primary" style="flex:1;min-width:180px;padding:13px;font-weight:700;font-size:13px;background:#7c3aed;border-color:#7c3aed" '
-      + 'onclick="abrirEstudoTecnico(\'' + uc + '\',' + sucessos + ')">📊 Estudo Técnico + Proposta</button>';
-    resH += '<button class="btn green" style="flex:1;min-width:160px;padding:13px;font-weight:700;font-size:13px" '
-      + 'onclick="diagIrParaAnalise(\'' + uc + '\')">⚡ Análise IA Completa</button>';
-    resH += '<button class="btn" style="padding:13px;font-size:13px" onclick="diagLimpar()">+ Novo Upload</button>';
-    resH += '</div></div>';
-
-    document.getElementById('diag-resultado').innerHTML = resH;
-    carregarDados();
-  } else {
-    // Todos falharam
-    document.getElementById('diag-resultado').style.display = 'block';
-    document.getElementById('diag-resultado').innerHTML =
-      '<div style="text-align:center;padding:24px;color:var(--muted)">'
-      + '<div style="font-size:32px;margin-bottom:8px">❌</div>'
-      + '<div style="font-size:14px;font-weight:600">Todas as faturas falharam</div>'
-      + '<div style="font-size:12px;margin-top:6px">' + erros.join('<br>') + '</div>'
-      + '<button class="btn" style="margin-top:16px" onclick="diagLimpar()">Tentar novamente</button>'
-      + '</div>';
+  try{
+    var form=new FormData();
+    form.append('pdf',file);
+    var resp=await fetch(RW+'/diagnostico',{method:'POST',body:form,signal:AbortSignal.timeout(60000)});
+    if(!resp.ok){var e=await resp.json().catch(function(){return{error:'Erro '+resp.status};});throw new Error(e.error||'Erro');}
+    var dados=await resp.json();
+    ld.style.display='none';
+    renderDiagnostico(dados,file.name);
+  }catch(e){
+    ld.style.display='none';
+    document.getElementById('diag-upload-area').style.display='block';
+    alert('Erro: '+e.message);
   }
 }
 
-function diagIrParaAnalise(uc) {
-  // Navega para a aba de análise e abre o cliente da UC
-  navegar('analises', document.getElementById('sb-analises'));
-  setTimeout(function() {
-    // Tenta encontrar e clicar no cliente correspondente à UC
-    var clientes = D.clientes || [];
-    var cliente = clientes.find(function(c){ return (c.ucs||[]).includes(uc); });
-    if(cliente) {
-      abrirAnaliseCliente(cliente);
-    }
-  }, 500);
+function renderDiagnostico(d,filename){
+  var res=document.getElementById('diag-resultado');
+  res.style.display='block';
+  var fmtR=function(v){return 'R$ '+parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2});};
+  var nome=d.cliente_nome||'Cliente';
+  var uc=d.uc||'—';
+  var total=parseFloat(d.total_a_pagar||0);
+  var sub=d.subgrupo||'';var mod=d.modalidade||'';
+  var dcP=parseFloat(d.demanda_contratada_ponta_kw||0);
+  var dcFP=parseFloat(d.demanda_contratada_fora_ponta_kw||0);
+  var dmP=parseFloat(d.demanda_medida_ponta_kw||0);
+  var dmFP=parseFloat(d.demanda_medida_fora_ponta_kw||0);
+  var dcMax=Math.max(dcP,dcFP);var dmMax=Math.max(dmP,dmFP);
+  var util=dcMax>0?Math.round(dmMax/dcMax*100):0;
+  var consumo=parseFloat(d.consumo_total_kwh||0);
+  var cosip=parseFloat(d.cosip_valor||0);
+  var mes=d.mes_referencia||'';
+  var analise=d.analise||{};
+  var score=analise.score_eficiencia||null;
+  var alertas=analise.alertas||[];
+  if(typeof alertas==='string'){try{alertas=JSON.parse(alertas);}catch(e){alertas=[];}}
+  var ecoAnual=parseFloat(analise.potencial_economia_anual||0);
+  var resumo=analise.resumo_executivo||'';
+  var textoIA=d.analise_textual||analise.analise_claude||'';
+  var parser=d.source_parser||'regex';
+
+  var H='';
+
+  // Botão voltar
+  H+='<div style="margin-bottom:16px"><button class="btn" onclick="document.getElementById(\'diag-upload-area\').style.display=\'block\';document.getElementById(\'diag-resultado\').style.display=\'none\'" style="font-size:12px;padding:6px 14px">← Nova análise</button>'
+    +'<span style="font-size:11px;color:var(--muted);margin-left:12px">'+filename+' · Parser: '+(parser==='claude_vision'?'🤖 Claude Vision':'📝 Regex')+'</span></div>';
+
+  // Header
+  var sc=!score?'#94a3b8':score>=85?'#6ee7b7':score>=70?'#fcd34d':'#fca5a5';
+  H+='<div style="background:linear-gradient(135deg,#0d2137,#1e3a5f);border-radius:14px;padding:22px 26px;margin-bottom:22px">';
+  H+='<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">';
+  H+='<div><div style="font-size:10px;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px">Diagnóstico de Fatura · '+mes+'</div>';
+  H+='<div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:5px">'+nome+'</div>';
+  H+='<div style="font-size:12px;color:rgba(255,255,255,.45)">UC '+uc+(sub?' · '+sub:'')+(mod?' · '+mod:'')+'</div></div>';
+  H+='<div style="display:flex;gap:10px">';
+  if(score) H+='<div style="text-align:center;background:rgba(255,255,255,.12);border-radius:10px;padding:12px 18px"><div style="font-size:28px;font-weight:700;color:'+sc+'">'+score+'</div><div style="font-size:9px;color:rgba(255,255,255,.4);text-transform:uppercase;margin-top:2px">Score</div></div>';
+  H+='</div></div>';
+  // KPIs
+  H+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px">';
+  [['Valor da Fatura',fmtR(total),'#fff'],['Consumo',consumo.toLocaleString('pt-BR')+' kWh','#fff'],['Economia Potencial/ano',fmtR(ecoAnual),'#6ee7b7'],['Utiliz. Demanda',util+'%',util<70?'#fca5a5':'#6ee7b7']].forEach(function(k){
+    H+='<div style="background:rgba(255,255,255,.09);border-radius:10px;padding:12px;text-align:center"><div style="font-size:15px;font-weight:700;color:'+k[2]+'">'+k[1]+'</div><div style="font-size:10px;color:rgba(255,255,255,.4);margin-top:3px">'+k[0]+'</div></div>';
+  });
+  H+='</div></div>';
+
+  // Screenshot da fatura
+  if(d.screenshot_b64){
+    H+='<div style="margin-bottom:20px;border:1px solid var(--border);border-radius:12px;overflow:hidden">';
+    H+='<div style="padding:10px 16px;background:var(--bg3);font-size:12px;font-weight:600;border-bottom:1px solid var(--border)">📄 Fatura Analisada — '+mes+'</div>';
+    H+='<img src="data:image/png;base64,'+d.screenshot_b64+'" style="width:100%;display:block">';
+    H+='</div>';
+  }
+
+  // Itens faturados
+  var itens=d.itens_faturados||[];
+  if(itens.length>0){
+    H+='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;color:#0d2137;margin-bottom:12px;display:flex;align-items:center;gap:8px"><span style="font-size:18px">📊</span> Itens Faturados ('+itens.length+')</div>';
+    H+='<div class="table-wrap"><div class="table-head" style="grid-template-columns:3fr 1fr 1fr"><div class="th">Descrição</div><div class="th r">Tarifa</div><div class="th r">Valor</div></div>';
+    itens.forEach(function(it,i){
+      var val=parseFloat(it.valor||0);
+      var cor=val<0?'var(--green)':'var(--text)';
+      H+='<div class="table-row" style="grid-template-columns:3fr 1fr 1fr;background:'+(i%2===0?'var(--bg3)':'var(--bg2)')+'">';
+      H+='<div class="td">'+it.descricao+(it.quantidade?' · '+parseFloat(it.quantidade).toLocaleString('pt-BR')+(it.unidade?' '+it.unidade:''):'')+'</div>';
+      H+='<div class="td r" style="color:var(--muted)">'+(it.tarifa?parseFloat(it.tarifa).toFixed(6):'—')+'</div>';
+      H+='<div class="td r" style="font-weight:600;color:'+cor+'">'+fmtR(val)+'</div>';
+      H+='</div>';
+    });
+    H+='<div class="table-row" style="grid-template-columns:3fr 1fr 1fr;background:#0d2137"><div class="td" style="color:#fff;font-weight:700">Total a Pagar</div><div class="td"></div><div class="td r" style="color:#F5A623;font-weight:700;font-size:14px">'+fmtR(total)+'</div></div>';
+    H+='</div></div>';
+  }
+
+  // Demanda
+  if(dcMax>0){
+    H+='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;color:#0d2137;margin-bottom:12px;display:flex;align-items:center;gap:8px"><span style="font-size:18px">⚡</span> Demanda</div>';
+    H+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">';
+    [['D.Ctda Ponta',dcP+' kW'],['D.Ctda F/Ponta',dcFP+' kW'],['D.Medida Ponta',dmP+' kW'],['D.Medida F/Ponta',dmFP+' kW']].forEach(function(r){
+      H+='<div style="background:var(--bg3);border-radius:8px;padding:12px;text-align:center"><div style="font-size:14px;font-weight:700">'+r[1]+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">'+r[0]+'</div></div>';
+    });
+    H+='</div></div>';
+  }
+
+  // Alertas
+  if(alertas.length>0){
+    H+='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;color:#0d2137;margin-bottom:12px;display:flex;align-items:center;gap:8px"><span style="font-size:18px">🚨</span> Alertas ('+alertas.length+')</div>';
+    alertas.forEach(function(a){
+      var isCrit=a.severidade==='critico';
+      var bg=isCrit?'#fff5f5':'#fefce8';var bc=isCrit?'#dc2626':'#d97706';
+      H+='<div style="border:1px solid '+bc+'33;border-left:4px solid '+bc+';border-radius:8px;padding:14px 16px;margin-bottom:8px;background:'+bg+'">';
+      H+='<div style="display:flex;justify-content:space-between;align-items:center">';
+      H+='<b style="font-size:13px">'+(isCrit?'🔴':'🟡')+' '+a.titulo+'</b>';
+      if(a.economia_mensal_r) H+='<span style="background:'+bc+';color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">-'+fmtR(a.economia_mensal_r)+'/mês</span>';
+      H+='</div>';
+      if(a.descricao) H+='<div style="font-size:12px;color:#374151;margin-top:6px">'+a.descricao+'</div>';
+      if(a.acao_recomendada) H+='<div style="font-size:12px;color:'+bc+';margin-top:6px;padding:6px 10px;background:'+bc+'15;border-radius:6px">💡 '+a.acao_recomendada+'</div>';
+      H+='</div>';
+    });
+    H+='</div>';
+  }
+
+  // Análise IA
+  if(textoIA){
+    H+='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;color:#0d2137;margin-bottom:12px;display:flex;align-items:center;gap:8px"><span style="font-size:18px">🤖</span> Análise IA</div>';
+    H+='<div style="background:var(--bg3);border-left:3px solid var(--green);border-radius:8px;padding:16px;font-size:13px;line-height:1.7;color:#374151;font-style:italic">"'+textoIA+'"</div>';
+    H+='</div>';
+  }
+
+  // Resumo
+  if(resumo){
+    H+='<div style="margin-bottom:20px;padding:16px;background:linear-gradient(135deg,#f0fdf4,#eff6ff);border-radius:10px;border:1px solid #bbf7d0">';
+    H+='<div style="font-size:13px;font-weight:700;color:#0d2137;margin-bottom:6px">📋 Resumo Executivo</div>';
+    H+='<div style="font-size:12px;color:#374151;line-height:1.6">'+resumo+'</div>';
+    H+='</div>';
+  }
+
+  // Dados extras
+  H+='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;color:#0d2137;margin-bottom:12px;display:flex;align-items:center;gap:8px"><span style="font-size:18px">📑</span> Dados Completos Extraídos</div>';
+  H+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+  var campos=[
+    ['Mês Referência',mes],['Vencimento',d.vencimento||'—'],
+    ['Nota Fiscal',d.nota_fiscal||'—'],['Data Emissão',d.data_emissao||'—'],
+    ['Grupo / Subgrupo',(d.grupo||'')+' / '+sub],['Modalidade',mod],
+    ['Medidor',d.medidor||'—'],['Tensão',d.tensao_contratada_v?d.tensao_contratada_v+' V':'—'],
+    ['Período',((d.periodo_consumo_inicio||'')+'  a  '+(d.periodo_consumo_fim||''))||'—'],
+    ['Dias Consumo',d.dias_consumo||'—'],
+    ['COSIP',fmtR(cosip)],['Bandeira',d.bandeira_tarifaria||'—'],
+    ['ICMS Base',d.icms_base_calculo?fmtR(d.icms_base_calculo):'—'],
+    ['ICMS Alíquota',d.icms_aliquota?d.icms_aliquota+'%':'—'],
+    ['ICMS Valor',d.icms_valor?fmtR(d.icms_valor):'—'],
+    ['Crédito GD',d.credito_geracao?fmtR(Math.abs(d.credito_geracao)):'—'],
+  ];
+  campos.forEach(function(c){
+    H+='<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px"><span style="color:var(--muted)">'+c[0]+'</span><span style="font-weight:600">'+c[1]+'</span></div>';
+  });
+  H+='</div></div>';
+
+  // Leituras de grandeza
+  var leituras=d.leituras_grandeza||[];
+  if(leituras.length>0){
+    H+='<div style="margin-bottom:20px"><div style="font-size:13px;font-weight:700;color:#0d2137;margin-bottom:12px">📏 Descrição da Grandeza</div>';
+    H+='<div class="table-wrap"><div class="table-head" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr"><div class="th">Grandeza</div><div class="th r">Leit. Atual</div><div class="th r">Leit. Anterior</div><div class="th r">Constante</div><div class="th r">Registrado</div></div>';
+    leituras.forEach(function(l){
+      H+='<div class="table-row" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr">';
+      H+='<div class="td">'+l.grandeza+'</div>';
+      H+='<div class="td r">'+parseFloat(l.leitura_atual||0).toLocaleString('pt-BR')+'</div>';
+      H+='<div class="td r">'+parseFloat(l.leitura_anterior||0).toLocaleString('pt-BR')+'</div>';
+      H+='<div class="td r">'+parseFloat(l.constante||0).toLocaleString('pt-BR')+'</div>';
+      H+='<div class="td r" style="font-weight:600">'+parseFloat(l.registrado||0).toLocaleString('pt-BR')+'</div>';
+      H+='</div>';
+    });
+    H+='</div></div>';
+  }
+
+  // Botão imprimir
+  H+='<div style="text-align:center;padding:20px"><button class="btn" onclick="window.print()" style="padding:10px 24px;font-size:13px">🖨 Imprimir Diagnóstico</button></div>';
+
+  res.innerHTML=H;
 }
 
-// Mantém compatibilidade com chamadas antigas
-async function handleDiagUpload(file) {
-  diagSelecionarArquivos(file ? [file] : []);
-}
 // ── INIT ─────────────────────────────────────────────────────────────────────
 carregarDados();
 setInterval(carregarDados, 30000);
