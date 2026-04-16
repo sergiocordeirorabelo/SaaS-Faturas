@@ -3451,9 +3451,19 @@ async function diagProcessar() {
   tituloEl.textContent = '✅ ' + sucessos + ' de ' + total + ' fatura(s) processada(s)';
 
   if(ultimoDado) {
-    // Mostra resumo e botão para ir para análise
     var uc = ultimoDado.uc || '';
     var nome = ultimoDado.cliente_nome || 'Cliente';
+    var analise = ultimoDado.analise || {};
+    var score = analise.score_eficiencia || 0;
+    var ecoM = parseFloat(analise.potencial_economia_mensal || 0);
+    var ecoA = parseFloat(analise.potencial_economia_anual || 0);
+    var alertas = analise.alertas || [];
+    var resumo = analise.resumo_executivo || '';
+    var subgrupo = ultimoDado.subgrupo || '';
+    var modalidade = ultimoDado.modalidade || '';
+    var fmtV = function(v){ return parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2}); };
+    var scoreCor = score >= 80 ? 'var(--green)' : score >= 50 ? '#f59e0b' : '#ef4444';
+
     document.getElementById('diag-resultado').style.display = 'block';
     var resH = '';
 
@@ -3462,15 +3472,50 @@ async function diagProcessar() {
         + '⚠️ ' + erros.length + ' erro(s): ' + erros.join(' | ') + '</div>';
     }
 
-    resH += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px">'
-      + '<div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px">📊 ' + nome + '</div>'
-      + '<div style="font-size:12px;color:var(--muted);margin-bottom:16px">UC ' + uc + ' · ' + sucessos + ' fatura(s) salvas</div>'
-      + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
-      + '<button class="btn green" style="flex:1;padding:12px;font-weight:700" onclick="diagIrParaAnalise('' + uc + '')">'
-        + '🔍 Ver Análise Completa</button>'
-      + '<button class="btn" style="padding:12px" onclick="diagLimpar()">+ Novo Upload</button>'
-      + '</div>'
-      + '</div>';
+    resH += '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px">';
+    resH += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">';
+    resH += '<div><div style="font-size:18px;font-weight:700;color:var(--text)">' + nome + '</div>';
+    resH += '<div style="font-size:12px;color:var(--muted);margin-top:3px">UC ' + uc
+      + (subgrupo ? ' · ' + subgrupo : '') + (modalidade ? ' ' + modalidade : '')
+      + ' · ' + sucessos + ' fatura(s)</div></div>';
+    resH += '<div style="text-align:center;background:var(--bg3);border-radius:10px;padding:10px 18px;flex-shrink:0">';
+    resH += '<div style="font-size:26px;font-weight:700;color:' + scoreCor + '">' + score + '</div>';
+    resH += '<div style="font-size:10px;color:var(--muted)">Score</div></div></div>';
+
+    if(ecoA > 0) {
+      resH += '<div style="background:var(--bg3);border-radius:10px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-around;text-align:center">';
+      resH += '<div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Economia potencial/mês</div>'
+        + '<div style="font-size:18px;font-weight:700;color:var(--green)">R$ ' + fmtV(ecoM) + '</div></div>';
+      resH += '<div style="width:1px;background:var(--border)"></div>';
+      resH += '<div><div style="font-size:11px;color:var(--muted);margin-bottom:2px">Economia potencial/ano</div>'
+        + '<div style="font-size:18px;font-weight:700;color:var(--green)">R$ ' + fmtV(ecoA) + '</div></div>';
+      resH += '</div>';
+    }
+
+    if(alertas.length) {
+      resH += '<div style="margin-bottom:16px">';
+      resH += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Alertas identificados</div>';
+      alertas.slice(0, 5).forEach(function(al) {
+        var cor = al.severidade === 'critico' ? '#ef4444' : al.severidade === 'atencao' ? '#f59e0b' : '#6366f1';
+        resH += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px;padding:10px 12px;background:var(--bg3);border-radius:8px;border-left:3px solid ' + cor + '">';
+        resH += '<div style="font-size:12px;font-weight:600;color:var(--text);flex:1">' + (al.titulo || '') + '</div>';
+        if(al.economia_mensal_r) resH += '<div style="font-size:11px;color:var(--green);white-space:nowrap;font-weight:600">R$ ' + fmtV(al.economia_mensal_r) + '/mês</div>';
+        resH += '</div>';
+      });
+      resH += '</div>';
+    }
+
+    if(resumo) {
+      resH += '<div style="font-size:12px;color:var(--muted);line-height:1.6;margin-bottom:16px;padding:12px;background:var(--bg3);border-radius:8px">' + resumo + '</div>';
+    }
+
+    resH += '<div style="display:flex;gap:10px;flex-wrap:wrap">';
+    resH += '<button class="btn primary" style="flex:1;min-width:180px;padding:13px;font-weight:700;font-size:13px;background:#7c3aed;border-color:#7c3aed" '
+      + 'onclick="abrirEstudoTecnico(\'' + uc + '\',' + sucessos + ')">📊 Estudo Técnico + Proposta</button>';
+    resH += '<button class="btn green" style="flex:1;min-width:160px;padding:13px;font-weight:700;font-size:13px" '
+      + 'onclick="diagIrParaAnalise(\'' + uc + '\')">⚡ Análise IA Completa</button>';
+    resH += '<button class="btn" style="padding:13px;font-size:13px" onclick="diagLimpar()">+ Novo Upload</button>';
+    resH += '</div></div>';
 
     document.getElementById('diag-resultado').innerHTML = resH;
     carregarDados();
