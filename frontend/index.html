@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trianon Energia — Gestão de Clientes</title>
+<title>VOLTIX ENERGIA — Gestão de Clientes</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
@@ -177,7 +177,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-
   <div class="sb-logo">
     <div class="sb-icon">⚡</div>
     <div>
-      <div class="sb-brand">Trianon Energia</div>
+      <div class="sb-brand">VOLTIX ENERGIA</div>
       <div class="sb-brand-sub">Gestão de Clientes</div>
     </div>
   </div>
@@ -1361,14 +1361,14 @@ async function gerarPropostaParaCliente(clienteId){
     +'.sig-line{border-top:1px solid #1a1a1a;padding-top:5px;font-size:10px;text-align:center}'
     +'@media print{.no-print{display:none}}</style></head><body>'
     +'<div class="logo"><div style="width:44px;height:44px;background:#059669;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff">⚡</div>'
-    +'<div><div style="font-size:16px;font-weight:700;color:#0d2137">TRIANON GESTÃO DE ENERGIA</div><div style="font-size:10px;color:#64748b">Gestão Inteligente · Manaus, AM</div></div>'
+    +'<div><div style="font-size:16px;font-weight:700;color:#0d2137">VOLTIX ENERGIA</div><div style="font-size:10px;color:#64748b">Gestão Inteligente · Manaus, AM</div></div>'
     +'<button class="no-print" onclick="window.print()" style="margin-left:auto;padding:8px 16px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">🖨 Salvar PDF</button>'
     +'</div>'
     +'<h1>PROPOSTA COMERCIAL</h1>'
     +'<p style="text-align:center;font-size:11px;color:#64748b;margin-bottom:18px">Gestão de Energia e Eficiência Energética</p>'
     +'<div class="grid">'
     +'<div class="box"><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:5px">Cliente</div><b>'+cl.nome+'</b><br><span style="font-size:10px;color:#64748b">'+ucs.map(function(u){return 'UC: '+u;}).join(' · ')+'</span></div>'
-    +'<div class="box"><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:5px">Fornecedor</div><b>TRIANON GESTÃO DE ENERGIA LTDA</b><br><span style="font-size:10px;color:#64748b">CNPJ: 58.843.586/0001-36 · Manaus, AM</span></div>'
+    +'<div class="box"><div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:5px">Fornecedor</div><b>VOLTIX ENERGIA LTDA</b><br><span style="font-size:10px;color:#64748b">CNPJ: 58.843.586/0001-36 · Manaus, AM</span></div>'
     +'</div>'
     +'<div class="hl"><div style="font-size:22px;font-weight:700;color:#059669">'+fmtR(valorMensal)+'/mês</div>'
     +'<div style="font-size:11px;color:#065f46;margin-top:4px">'+ucs.length+' UC(s) × R$ 500,00 · Economia estimada: '+fmtR(ecoEstimada)+'/ano</div></div>'
@@ -1382,7 +1382,7 @@ async function gerarPropostaParaCliente(clienteId){
     +'<h2>Condições</h2>'
     +'<div style="font-size:11px;line-height:1.8">• <b>Vigência:</b> 12 meses · reajuste anual pelo IPCA<br>• <b>Rescisão sem multa:</b> quando custo superar economia<br>• <b>Foro:</b> Comarca de Manaus, AM</div>'
     +'<p style="text-align:center;margin:18px 0;font-size:11px">Manaus, '+dataHoje+'</p>'
-    +'<div class="sigs"><div><div style="height:40px"></div><div class="sig-line">TRIANON GESTÃO DE ENERGIA LTDA<br>Fornecedor</div></div>'
+    +'<div class="sigs"><div><div style="height:40px"></div><div class="sig-line">VOLTIX ENERGIA LTDA<br>Fornecedor</div></div>'
     +'<div><div style="height:40px"></div><div class="sig-line">'+cl.nome.slice(0,40)+'<br>Contratante</div></div></div>'
     +'</body></html>');
   w.document.close();
@@ -1998,14 +1998,14 @@ function abrirPdfProposta(c, prop, analise, valorMensal, ecoEstimada){
     +'@media print{.no-print{display:none}}</style></head><body>'
     +'<div class="logo">'
     +'<div class="logo-box">⚡</div>'
-    +'<div><div class="logo-nome">TRIANON GESTÃO DE ENERGIA</div><div class="logo-sub">Gestão Inteligente · Manaus, AM</div></div>'
+    +'<div><div class="logo-nome">VOLTIX ENERGIA</div><div class="logo-sub">Gestão Inteligente · Manaus, AM</div></div>'
     +'<button class="no-print" onclick="window.print()" style="margin-left:auto;padding:8px 16px;background:#059669;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">🖨 Salvar PDF</button>'
     +'</div>'
     +'<h1>PROPOSTA COMERCIAL</h1>'
     +'<p style="text-align:center;font-size:11px;color:#64748b;margin-bottom:20px">Gestão de Energia e Eficiência Energética</p>'
     +'<div class="grid">'
     +'<div class="box"><div class="box-label">Cliente</div><b>'+c.nome+'</b><br><span style="font-size:10px;color:#64748b">CNPJ: '+formatCNPJ(c.cnpj||'')+'<br>UC: '+ucs+'</span></div>'
-    +'<div class="box"><div class="box-label">Fornecedor</div><b>TRIANON GESTÃO DE ENERGIA LTDA</b><br><span style="font-size:10px;color:#64748b">CNPJ: 58.843.586/0001-36<br>Manaus, AM</span></div>'
+    +'<div class="box"><div class="box-label">Fornecedor</div><b>VOLTIX ENERGIA LTDA</b><br><span style="font-size:10px;color:#64748b">CNPJ: 58.843.586/0001-36<br>Manaus, AM</span></div>'
     +'</div>'
     +'<div class="hl">'
     +'<div class="hl-val">R$ '+valorMensal.toLocaleString('pt-BR',{minimumFractionDigits:2})+'/mês</div>'
@@ -2027,10 +2027,10 @@ function abrirPdfProposta(c, prop, analise, valorMensal, ecoEstimada){
     +'</div>'
     +'<p style="text-align:center;margin:20px 0;font-size:11px;color:#374151">Manaus, '+dataHoje+'</p>'
     +'<div class="sigs">'
-    +'<div class="sig"><div style="height:40px"></div><div class="sig-line">TRIANON GESTÃO DE ENERGIA LTDA<br>Fornecedor</div></div>'
+    +'<div class="sig"><div style="height:40px"></div><div class="sig-line">VOLTIX ENERGIA LTDA<br>Fornecedor</div></div>'
     +'<div class="sig"><div style="height:40px"></div><div class="sig-line">'+c.nome.slice(0,40)+'<br>Contratante</div></div>'
     +'</div>'
-    +'<div class="footer">TRIANON GESTÃO DE ENERGIA LTDA · CNPJ: 58.843.586/0001-36 · Manaus, AM · Esta proposta tem validade de 15 dias.</div>'
+    +'<div class="footer">VOLTIX ENERGIA LTDA · CNPJ: 58.843.586/0001-36 · Manaus, AM · Esta proposta tem validade de 15 dias.</div>'
     +'</body></html>');
   w.document.close();
 }
@@ -2087,7 +2087,7 @@ function gerarContratoPDF(clienteId){
   // Header
   h.push('<div class="logo-area">');
   h.push('<div class="logo-box">⚡</div>');
-  h.push('<div><div class="logo-nome">TRIANON GESTÃO DE ENERGIA</div><div class="logo-sub">Gestão Inteligente de Energia · Manaus, AM</div></div>');
+  h.push('<div><div class="logo-nome">VOLTIX ENERGIA</div><div class="logo-sub">Gestão Inteligente de Energia · Manaus, AM</div></div>');
   h.push('<button onclick="window.print()" style="margin-left:auto;padding:8px 16px;background:#0d2137;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">🖨 Imprimir / Salvar PDF</button>');
   h.push('</div>');
 
@@ -2101,7 +2101,7 @@ function gerarContratoPDF(clienteId){
   if(cl.endereco) h.push('<div class="parte-info" style="margin-top:3px">'+cl.endereco+'</div>');
   h.push('</div>');
   h.push('<div class="parte-box"><div class="parte-label">Contratada</div>');
-  h.push('<div class="parte-nome">TRIANON GESTÃO DE ENERGIA LTDA</div>');
+  h.push('<div class="parte-nome">VOLTIX ENERGIA LTDA</div>');
   h.push('<div class="parte-info">CNPJ: 58.843.586/0001-36<br>Rua Dom José Moraes Torres, 69 – Flores, Manaus, AM</div>');
   h.push('</div>');
   h.push('</div>');
@@ -2203,7 +2203,7 @@ function gerarContratoPDF(clienteId){
   h.push('<p style="font-size:11px;text-align:center;margin:14px 0">Manaus, '+dataHoje+'.</p>');
 
   h.push('<div class="sigs">');
-  h.push('<div class="sig"><div style="height:44px"></div><div class="sig-line">TRIANON GESTÃO DE ENERGIA LTDA<br><span style="font-size:9px;color:#64748b;font-weight:400">Contratada</span></div></div>');
+  h.push('<div class="sig"><div style="height:44px"></div><div class="sig-line">VOLTIX ENERGIA LTDA<br><span style="font-size:9px;color:#64748b;font-weight:400">Contratada</span></div></div>');
   h.push('<div class="sig"><div style="height:44px"></div><div class="sig-line">'+cl.nome+'<br><span style="font-size:9px;color:#64748b;font-weight:400">Contratante</span></div></div>');
   h.push('</div>');
   h.push('<div class="sigs" style="margin-top:24px">');
@@ -2211,7 +2211,7 @@ function gerarContratoPDF(clienteId){
   h.push('<div class="sig"><div style="height:44px"></div><div class="sig-line">TESTEMUNHA<br>Nome: ________________________________<br>CPF: _________________________________</div></div>');
   h.push('</div>');
 
-  h.push('<div class="footer">TRIANON GESTÃO DE ENERGIA LTDA · CNPJ: 58.843.586/0001-36 · Rua Dom José Moraes Torres, 69 – Flores, Manaus, AM</div>');
+  h.push('<div class="footer">VOLTIX ENERGIA LTDA · CNPJ: 58.843.586/0001-36 · Rua Dom José Moraes Torres, 69 – Flores, Manaus, AM</div>');
   h.push('</body></html>');
 
   w.document.write(h.join(''));
@@ -2733,7 +2733,7 @@ async function abrirAnaliseCliente(clienteId){
   // ── 1. HEADER ─────────────────────────────────────────────────────────────
   H += '<div style="background:linear-gradient(135deg,#0d2137,#1e3a5f);border-radius:14px;padding:22px 26px;margin-bottom:22px">';
   H += '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">';
-  H += '<div><div style="font-size:10px;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px">Diagnóstico Executivo · Trianon Gestão de Energia</div>';
+  H += '<div><div style="font-size:10px;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px">Diagnóstico Executivo · VOLTIX ENERGIA</div>';
   H += '<div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:5px">'+cl.nome+'</div>';
   H += '<div style="font-size:12px;color:rgba(255,255,255,.45)">'+ucs.map(function(u){return 'UC '+u;}).join(' · ')+(subg!=='?'?' · '+subg:'')+(mod!=='?'?' · '+mod:'')+'</div></div>';
   H += '<div style="display:flex;gap:10px;align-items:center">';
@@ -2964,7 +2964,7 @@ function imprimirAnaliseCompleta(){
     // Cabeçalho profissional
     +'<div style="display:flex;align-items:center;gap:12px;padding-bottom:12px;margin-bottom:18px;border-bottom:3px solid #059669">'
     +'<div style="width:40px;height:40px;background:#059669;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;flex-shrink:0">⚡</div>'
-    +'<div style="flex:1"><div style="font-size:16px;font-weight:700;color:#0d2137">TRIANON GESTÃO DE ENERGIA</div>'
+    +'<div style="flex:1"><div style="font-size:16px;font-weight:700;color:#0d2137">VOLTIX ENERGIA</div>'
     +'<div style="font-size:10px;color:#64748b">Gestão Inteligente de Energia · Manaus, AM · CNPJ: 58.843.586/0001-36</div></div>'
     +'<div style="text-align:right">'
     +'<div style="font-size:10px;color:#64748b">Diagnóstico Executivo</div>'
@@ -2975,7 +2975,7 @@ function imprimirAnaliseCompleta(){
     + clone.innerHTML
     // Rodapé
     +'<div style="margin-top:24px;padding-top:10px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#94a3b8">'
-    +'<span>TRIANON GESTÃO DE ENERGIA LTDA · CNPJ: 58.843.586/0001-36 · Manaus, AM</span>'
+    +'<span>VOLTIX ENERGIA LTDA · CNPJ: 58.843.586/0001-36 · Manaus, AM</span>'
     +'<span>Documento confidencial · '+dataHoje+'</span>'
     +'</div>'
     +'</div>'

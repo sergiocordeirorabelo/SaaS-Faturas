@@ -245,7 +245,7 @@ async def handle_analise_uc(request: web.Request) -> web.Response:
             f"## 📋 Escopo de Serviços Recomendado\n"
             f"## 💰 Estimativa de Resultado\n"
             f"## 📅 Próximos Passos\n\n"
-            f"Use os números reais. Convença o cliente a fechar contrato com a Trianon Gestão de Energia."
+            f"Use os números reais. Convença o cliente a fechar contrato com a VOLTIX ENERGIA."
         )
 
         openai_key = os.environ.get("OPENAI_API_KEY", "")
