@@ -17,6 +17,7 @@ from datetime import datetime
 
 from aiohttp import web
 
+from src.config import settings
 from src.db.client import SupabaseClient
 from src.utils.logger import setup_logger
 
@@ -591,6 +592,49 @@ async def handle_diagnostico(request: web.Request) -> web.Response:
         return web.json_response({"error": str(exc)}, status=500)
 
 
+async def handle_db_patch(request: web.Request) -> web.Response:
+    """
+    PATCH /db/{table}?{filtro}
+    Proxy para updates no Supabase usando service_role key.
+    Necessário porque o Supabase allowlist bloqueia writes diretos do browser.
+    """
+    import aiohttp as _aiohttp
+    table = request.match_info.get("table", "")
+    qs = request.query_string
+
+    if not table or not qs:
+        return web.json_response({"error": "tabela e filtro obrigatórios"}, status=400)
+
+    TABELAS_PERMITIDAS = {"clientes", "faturas_parsed", "faturas_analise"}
+    if table not in TABELAS_PERMITIDAS:
+        return web.json_response({"error": f"tabela não permitida: {table}"}, status=403)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "body JSON inválido"}, status=400)
+
+    url = f"{settings.SUPABASE_URL}/rest/v1/{table}?{qs}"
+    headers = {
+        "apikey": settings.SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+
+    try:
+        async with _aiohttp.ClientSession() as session:
+            async with session.patch(url, json=body, headers=headers) as resp:
+                if resp.status in (200, 204):
+                    return web.json_response({"ok": True})
+                text = await resp.text()
+                logger.error(f"[DB PATCH] {resp.status}: {text}")
+                return web.json_response({"error": text}, status=resp.status)
+    except Exception as exc:
+        logger.error(f"[DB PATCH] Exceção: {exc}")
+        return web.json_response({"error": str(exc)}, status=500)
+
+
 async def criar_app() -> web.Application:
     app = web.Application(client_max_size=20*1024*1024)  # 20MB max upload
     app.router.add_get("/health",                   handle_health)
@@ -599,6 +643,7 @@ async def criar_app() -> web.Application:
     app.router.add_get("/analise/uc/{uc}",          handle_analise_uc)
     app.router.add_get("/estudo/uc/{uc}",           handle_estudo_uc)
     app.router.add_post("/diagnostico",             handle_diagnostico)
+    app.router.add_patch("/db/{table}",             handle_db_patch)
 
     # CORS para o dashboard Vercel
     async def cors_middleware(app, handler):
@@ -606,8 +651,8 @@ async def criar_app() -> web.Application:
             if request.method == "OPTIONS":
                 return web.Response(headers={
                     "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type",
+                    "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
                 })
             response = await handler(request)
             response.headers["Access-Control-Allow-Origin"] = "*"
