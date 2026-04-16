@@ -175,32 +175,94 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-
 
 @media(max-width:768px){
   :root{--sidebar-w:260px}
+
+  /* Hamburger e sidebar */
   .hamburger{display:flex;align-items:center}
   .sidebar{transform:translateX(-100%);transition:transform .25s ease}
   .sidebar.open{transform:translateX(0)}
   .sidebar-overlay.open{display:block}
   .main{margin-left:0!important}
+
+  /* Topbar */
   .topbar{padding:10px 14px;gap:8px}
   .topbar-title{font-size:14px}
   .topbar .btn.big{display:none}
-  .page{padding:14px}
-  .kanban{grid-template-columns:repeat(5,240px)!important;overflow-x:auto;padding-bottom:10px;-webkit-overflow-scrolling:touch}
-  .kanban-col{min-height:200px}
+
+  /* Páginas */
+  .page{padding:12px!important}
+
+  /* Metrics: 2 colunas em vez de 4 */
+  .metrics-grid{grid-template-columns:repeat(2,1fr)!important;gap:10px!important}
+
+  /* Kanban: scroll horizontal */
+  .kanban{grid-template-columns:repeat(5,220px)!important;overflow-x:auto;padding-bottom:10px;-webkit-overflow-scrolling:touch}
+  .kanban-col{min-height:180px}
+
+  /* Tabelas: scroll horizontal */
   .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  .table-head,.table-row{min-width:600px}
-  .modal-bg{padding:0}
-  .modal-box,.modal-box.wide{max-width:100%;border-radius:0;min-height:100vh}
+  .table-head,.table-row{min-width:500px}
+
+  /* Modais: fullscreen */
+  .modal-bg{padding:0!important}
+  .modal-box,.modal-box.wide{max-width:100%!important;max-height:100vh!important;border-radius:0!important;min-height:100vh!important;height:100vh!important}
   .modal-head{position:sticky;top:0;z-index:10}
+
+  /* Análises: grid 280px+1fr → empilhado */
+  #page-analises > div{display:flex!important;flex-direction:column!important;height:auto!important;margin:0!important}
+  #page-analises > div > div:first-child{border-right:none!important;border-bottom:1px solid var(--border);max-height:200px;overflow-y:auto}
+  #page-analises > div > div:last-child{padding:16px!important}
+
+  /* Diagnóstico: full width */
+  #page-diagnostico > div{max-width:100%!important}
+
+  /* Forms: 1 coluna */
+  .form-row{grid-template-columns:1fr!important}
+
+  /* Cards de cliente */
   .client-card{font-size:12px}
-  .topbar>div:last-child{flex-wrap:wrap}
-  .btn{font-size:11px;padding:6px 10px}
   .client-card-actions{flex-direction:column}
-  .client-card-actions .btn{width:100%;text-align:center}
+  .client-card-actions .btn{width:100%;text-align:center;padding:8px}
+
+  /* Botões */
+  .btn{font-size:11px;padding:6px 10px}
+  .topbar>div:last-child{flex-wrap:wrap}
+
+  /* Alert items */
+  .alert-item{flex-direction:column;gap:6px}
+
+  /* Timeline */
+  .tl-item{gap:8px}
+
+  /* Inline grids com 2 colunas → 1 coluna */
+  [style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}
+
+  /* Filtros e ações inline */
+  [style*="display:flex"][style*="gap:8px"]{flex-wrap:wrap}
+  [style*="display:flex"][style*="gap:10px"]{flex-wrap:wrap}
+
+  /* Upload area diagnóstico */
+  #diag-upload-area{padding:24px 16px!important}
+
+  /* Estudo modal */
+  #modalEstudo .modal-box{height:100vh!important}
+  #me-body iframe{width:100%!important;min-height:70vh}
+
+  /* Tabs no modal */
+  [style*="display:flex"][style*="border-bottom:2px"]{overflow-x:auto;-webkit-overflow-scrolling:touch}
 }
+
 @media(max-width:480px){
-  .topbar-title{font-size:13px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .kanban{grid-template-columns:repeat(5,200px)!important}
-  .page{padding:10px}
+  .topbar-title{font-size:13px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .metrics-grid{grid-template-columns:1fr 1fr!important;gap:8px!important}
+  .kanban{grid-template-columns:repeat(5,180px)!important}
+  .page{padding:8px!important}
+  .modal-head{padding:12px 14px!important}
+  .modal-title{font-size:13px!important}
+  .sb-logo{padding:14px 12px}
+
+  /* Sidebar buttons */
+  .sidebar [style*="margin:10px 10px"]{margin:6px 8px 3px!important;padding:9px 10px!important}
+  .sidebar [style*="margin:0 10px"]{margin:0 8px 3px!important;padding:7px 10px!important}
 }
 </style>
 </head>
@@ -2274,6 +2336,7 @@ function gerarContratoPDF(clienteId){
 
 // ── NOVA EXTRAÇÃO ────────────────────────────────────────────────────────────
 function abrirModalNovoCliente(){
+  closeSidebar();
   document.getElementById('modalNovoCliente').style.display='block';
   document.getElementById('form-novo-cliente').style.display='block';
   document.getElementById('form-upload-pdf').style.display='none';
