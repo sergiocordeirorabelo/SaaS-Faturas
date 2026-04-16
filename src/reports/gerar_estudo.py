@@ -76,7 +76,7 @@ def _set_autofit(shape):
         pass
 
 
-
+def _set_cell(tbl, row, col, text):
     cell = tbl.cell(row, col)
     for p in cell.text_frame.paragraphs:
         if p.runs:
