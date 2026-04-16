@@ -29,6 +29,7 @@ except ImportError:
 
 try:
     from src.reports.gerar_estudo import gerar_estudo_pdf as gerar_estudo_pptx
+    from src.parsers.analyzer_historico import AnalisadorHistorico
     PPTX_DISPONIVEL = True
 except ImportError:
     PPTX_DISPONIVEL = False
@@ -306,9 +307,10 @@ async def handle_estudo_uc(request: web.Request) -> web.Response:
                 .order("mes_referencia", desc=True).limit(limit).execute().data or []
             alertas = db._client.table("alertas_de_fatura").select("*").eq("uc", uc)\
                 .eq("resolvido", False).execute().data or []
-            clientes = db._client.table("clientes").select("cnpj")\
+            # CORRIGIDO: tabela é "empresas", não "clientes"
+            empresas = db._client.table("empresas").select("cnpj")\
                 .contains("ucs", [uc]).limit(1).execute().data or []
-            cnpj = clientes[0].get("cnpj", "") if clientes else ""
+            cnpj = empresas[0].get("cnpj", "") if empresas else ""
             return faturas, alertas, cnpj
 
         faturas, alertas, cnpj = await loop.run_in_executor(None, _buscar)
@@ -316,11 +318,13 @@ async def handle_estudo_uc(request: web.Request) -> web.Response:
         if not faturas:
             return web.json_response({"error": f"UC {uc} não encontrada"}, status=404)
 
-        # Tenta renderizar screenshot da fatura mais recente
+        # Monta ResultadoHistorico via AnalisadorHistorico (fonte única de verdade)
+        resultado = AnalisadorHistorico().analisar(faturas, alertas, cnpj=cnpj)
+
+        # Tenta screenshot da fatura mais recente
         pdf_screenshot = None
         try:
-            f0 = faturas[0]
-            source_path = f0.get("source_pdf_path", "")
+            source_path = faturas[0].get("source_pdf_path", "")
             if source_path:
                 def _render_screenshot():
                     import tempfile
@@ -338,12 +342,11 @@ async def handle_estudo_uc(request: web.Request) -> web.Response:
         except Exception as ss_err:
             logger.warning(f"[API] Screenshot falhou: {ss_err}")
 
-        buf = gerar_estudo_pptx(faturas, alertas, cnpj=cnpj, pdf_screenshot_bytes=pdf_screenshot)
+        buf = gerar_estudo_pptx(resultado, pdf_screenshot_bytes=pdf_screenshot)
 
-        nome = faturas[0].get("cliente_nome", uc).replace(" ", "_")[:30]
+        nome = resultado.nome.replace(" ", "_")[:30] or uc
         filename = f"Estudo_Tecnico_{nome}.pdf"
-
-        logger.info(f"[API] Estudo PDF gerado para UC {uc} — {len(faturas)} faturas")
+        logger.info(f"[API] Estudo PDF gerado para UC {uc} — {resultado.n_faturas} faturas")
 
         return web.Response(
             body=buf.read(),

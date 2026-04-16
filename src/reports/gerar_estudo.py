@@ -1,27 +1,37 @@
 """
 Gerador de Estudo Técnico — Template-based 100% dinâmico.
-Usa PPTX Cometais como template visual, substitui TODOS os dados pelo cliente.
+
+Recebe um ResultadoHistorico (já calculado pelo AnalisadorHistorico)
+e preenche o template PPTX com os dados do cliente.
+Responsabilidade única: formatação e geração do documento.
+Nenhuma regra de negócio ou cálculo aqui.
 """
 from __future__ import annotations
-import io,os,logging,subprocess,tempfile
+import io, os, logging, subprocess, tempfile
 from datetime import datetime
 from pptx import Presentation
-from pptx.util import Pt,Inches
+from pptx.util import Pt, Inches
 
-logger=logging.getLogger(__name__)
+from src.parsers.analyzer_historico import ResultadoHistorico
 
-def _f(v,d=2):
-    try: return f"{float(v):,.{d}f}".replace(",","X").replace(".",",").replace("X",".")
-    except: return "—"
-def _fi(v): return _f(v,0)
+logger = logging.getLogger(__name__)
+
+
+def _f(v, d=2):
+    try:
+        return f"{float(v):,.{d}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return "—"
+
+def _fi(v):
+    return _f(v, 0)
 
 def _assets():
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)),"assets")
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 def _replace_in_shape(shape, old, new):
     if not shape.has_text_frame: return False
-    full = shape.text_frame.text
-    if old not in full: return False
+    if old not in shape.text_frame.text: return False
     for para in shape.text_frame.paragraphs:
         for run in para.runs:
             if old in run.text:
@@ -39,7 +49,7 @@ def _replace_all(prs, old, new):
     for slide in prs.slides:
         for shape in slide.shapes:
             _replace_in_shape(shape, old, new)
-            if hasattr(shape,'has_table') and shape.has_table:
+            if hasattr(shape, "has_table") and shape.has_table:
                 for row in shape.table.rows:
                     for cell in row.cells:
                         if old in cell.text:
@@ -58,209 +68,85 @@ def _set_cell(tbl, row, col, text):
     cell.text = str(text)
 
 def _delete_slide(prs, index):
-    """Remove um slide da apresentação."""
-    rId = prs.slides._sldIdLst[index].get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+    rId = prs.slides._sldIdLst[index].get(
+        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+    )
     prs.part.drop_rel(rId)
     del prs.slides._sldIdLst[index]
 
-# ══════════════════════════════════════════════════════════════════════════════
-def _analisar(faturas, alertas=None):
-    alertas=alertas or[];n=len(faturas);f0=faturas[0]
-    totais=[float(f.get("total_a_pagar")or 0)for f in faturas]
-    cm=sum(totais)/n
-    dd=0.0
-    for f in faturas:
-        dc=float(f.get("demanda_contratada_fora_ponta_kw")or 0)
-        dm=float(f.get("demanda_medida_fora_ponta_kw")or 0)
-        td=float(f.get("tarifa_demanda")or 0)
-        if dc>dm and td>0:dd+=(dc-dm)*td
-    dr=0.0
-    for f in faturas:
-        for it in(f.get("itens_faturados")or[]):
-            d=(it.get("descricao")or"").lower()
-            if "exc" in d and("en r" in d or"r exc" in d):dr+=abs(float(it.get("valor")or 0))
-        if not f.get("itens_faturados"):
-            u=float(f.get("ufer_fora_ponta_kvarh")or 0)
-            if u>0:dr+=u*0.349
-    dm2=0.0
-    for f in faturas:
-        for it in(f.get("itens_faturados")or[]):
-            d=(it.get("descricao")or"").lower()
-            if "multa" in d or"juros" in d or"mora" in d:dm2+=abs(float(it.get("valor")or 0))
-    cosip_t=sum(float(f.get("cosip_valor")or 0)for f in faturas);cosip_m=cosip_t/n
-    gd=0.0
-    for f in faturas:
-        for it in(f.get("itens_faturados")or[]):
-            d=(it.get("descricao")or"").lower()
-            if "credito" in d and"gera" in d:gd+=abs(float(it.get("valor")or 0))
-    dcm=max(max(float(f.get("demanda_contratada_ponta_kw")or 0),float(f.get("demanda_contratada_fora_ponta_kw")or 0))for f in faturas)
-    dms=[max(float(f.get("demanda_medida_ponta_kw")or 0),float(f.get("demanda_medida_fora_ponta_kw")or 0))for f in faturas]
-    dmx=max(dms);dmd=sum(dms)/n
-    ut=round(dmd/dcm*100)if dcm>0 else 0
-    el=(f0.get("subgrupo")or"").startswith("A")or dcm>=300
-    # Demanda ultrapassada
-    du=0.0
-    for f in faturas:
-        for it in(f.get("itens_faturados")or[]):
-            d2=(it.get("descricao")or"").lower()
-            if "ultrapass" in d2:du+=abs(float(it.get("valor")or 0))
-    # ICMS sobre TUSD (potencial recuperação)
-    icms=0.0
-    for f in faturas:
-        iv=float(f.get("icms_valor")or 0)
-        if iv>0:
-            icms+=iv*0.6  # ~60% do ICMS é sobre TUSD, recuperável
-        else:
-            tp=float(f.get("total_a_pagar")or 0)
-            if tp>5000:icms+=tp*0.63*0.18  # TUSD*alíquota estimada
-    dt=dd+du+dr+dm2+icms
-    # Pontos de atenção
-    # IMPORTANTE: pt1 cabe ~25 chars (caixa pequena), pts 2-6 cabem ~100 chars (caixas maiores)
-    pts=[]
-    if ut<85 and dcm>0:
-        pts.append(f"Demanda contratada atual.")  # pt1 = curto
-        pts.append(f"Demanda não utilizada recorrente, {_fi(dcm)} kW contratada vs {_fi(dmd)} kW utilizada ({ut}%). Podendo ser ajustada com sazonalidade.")
-    else:
-        pts.append(f"Demanda contratada atual.")
-        pts.append(f"Demanda de {_fi(dcm)} kW com utilização de {ut}%. Dentro dos parâmetros aceitáveis.")
-    if dr>0:
-        pts.append(f"Energia reativa (UFER): R$ {_f(dr)}. Multa por baixo fator de potência, corrigir com Banco de Capacitores e estudar Filtro Capacitivo.")
-    elif gd>0:
-        pts.append(f"Geração Distribuída ativa. Créditos de R$ {_f(gd)}. Verificar potencial de expansão do sistema.")
-    else:
-        pts.append(f"Sem cobrança de energia reativa. Fator de potência dentro dos limites da ANEEL.")
-    if cosip_m>300:
-        pts.append(f"COSIP elevada: R$ {_f(cosip_m)}/mês. Contestar valor junto à Prefeitura e verificar base de cálculo.")
-    elif dm2>0:
-        pts.append(f"Multas por atrasos de pagamentos: R$ {_f(dm2)}. Requer uma gestão ativa nas contas para evitar encargos.")
-    else:
-        pts.append(f"Sem multas por atraso identificadas. Manter gestão preventiva dos vencimentos.")
-    if dm2>0 and cosip_m>300:
-        pts.append(f"Multas por atrasos de pagamentos: R$ {_f(dm2)}. Requer gestão ativa nas contas.")
-    elif icms>0:
-        pts.append(f"ICMS sobre TUSD: R$ {_f(icms)} potencialmente recuperável. Elaborar laudo técnico para separar produção.")
-    elif el:
-        pts.append(f"Elegível para o Mercado Livre ({f0.get('subgrupo','?')}, {_fi(dcm)} kW). Economia estimada de 15-25% via comercializadora.")
-    else:
-        pts.append(f"Auditar leituras do medidor da UC para identificar cobranças indevidas nas últimas 120 faturas.")
-    if icms>0 and len(pts)<6:
-        pts.append(f"ICMS sobre TUSD: R$ {_f(icms)} recuperável via laudo técnico e processo administrativo/judicial.")
-    if el and len(pts)<6:
-        pts.append(f"Elegível Mercado Livre ({f0.get('subgrupo','?')}, {_fi(dcm)} kW). Economia 15-25% via comercializadora.")
-    for al in alertas:
-        t=al.get("titulo","")
-        if t and len(pts)<6:pts.append(f"{t}. {al.get('descricao','')[:80]}")
-    while len(pts)<6:pts.append("Auditar registros do medidor para identificar cobranças indevidas retroativas.")
-    # Cronograma dinâmico baseado na análise
-    acoes=[]
-    acoes.append(("Auditoria\nRetroativa\ndos últimos\n120 meses","Buscar pagamentos\nindevidos e pedir\nrestituição"))
-    if ut<85 and dcm>0:
-        acoes.append(("Ajustar a\ndemanda\ncontratada\nociosa",f"Reduzir de {_fi(dcm)} kW\npara ~{_fi(dmd)} kW\n(economia imediata)"))
-    if el:
-        acoes.append(("Migração\npara o\nMercado Livre",f"Economia de 15-25%\nna tarifa de energia\nvia comercializadora"))
-    if dr>0:
-        acoes.append(("Corrigir\nfator de\npotência","Instalar/ajustar\nBanco de Capacitores\nURGENTE"))
-    acoes.append(("Laudo de\nICMS para\ncréditos\nda energia","Fazer laudo para\nseparar o que é\nprodução"))
-    if gd>0:
-        acoes.append(("Otimizar\nGeração\nDistribuída","Gestão de créditos\ne estudo de\nexpansão"))
-    if cosip_m>300:
-        acoes.append(("Contestar\nCOSIP junto\nà Prefeitura",f"Valor médio\nR$ {_fi(cosip_m)}/mês\nacima do padrão"))
-    acoes.append(("Relatório\nMensal de\nResultado","Prestação de contas\ncom economia\ne metas"))
-    while len(acoes)<8:
-        acoes.append(("Vistoria\nTécnica da\nInstalação","Inspeção da rede\nelétrica para\nmelhorias"))
-    return {"nome":f0.get("cliente_nome",""),"uc":f0.get("uc",""),
-        "sub":f0.get("subgrupo",""),"mod":f0.get("modalidade",""),
-        "n":n,"f0":f0,"mes":f0.get("mes_referencia",""),
-        "cm":cm,"ca":cm*12,"dt":dt,"da":dt/n*12,
-        "dcm":dcm,"dmx":dmx,"dmd":dmd,"ut":ut,
-        "dd":dd,"du":du,"dr":dr,"dm2":dm2,"icms":icms,
-        "cosip_t":cosip_t,"cosip_m":cosip_m,"gd":gd,"el":el,
-        "pts":pts,"acoes":acoes[:8]}
 
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# ══════════════════════════════════════════════════════════════════════════════
-def gerar_estudo_pdf(faturas,alertas=None,cnpj="",valor_mensal=500,comissao=30,pdf_screenshot_bytes=None):
-    if not faturas:raise ValueError("Nenhuma fatura")
-    d=_analisar(faturas,alertas)
+def gerar_estudo_pdf(
+    resultado: ResultadoHistorico,
+    valor_mensal: int = 500,
+    comissao: int = 30,
+    pdf_screenshot_bytes: bytes = None,
+) -> io.BytesIO:
+    """
+    Preenche o template PPTX com dados do ResultadoHistorico e converte para PDF.
+    """
+    r = resultado
     meses_pt = {1:"Janeiro",2:"Fevereiro",3:"Março",4:"Abril",5:"Maio",6:"Junho",
-               7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
+                7:"Julho",8:"Agosto",9:"Setembro",10:"Outubro",11:"Novembro",12:"Dezembro"}
     mes_atual = meses_pt.get(datetime.now().month, "")
 
-    tmpl=os.path.join(_assets(),"template.pptx")
-    if not os.path.exists(tmpl):raise FileNotFoundError(f"Template: {tmpl}")
-    prs=Presentation(tmpl)
+    tmpl = os.path.join(_assets(), "template.pptx")
+    if not os.path.exists(tmpl):
+        raise FileNotFoundError(f"Template não encontrado: {tmpl}")
+    prs = Presentation(tmpl)
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # SLIDE 1: CAPA — nome, CNPJ, UC
-    # ═══════════════════════════════════════════════════════════════════════
-    _replace_all(prs,"COMETAIS INDUSTRIA E COMERCIO DE METAIS LTDA",d["nome"][:60])
-    _replace_all(prs,"02.896.727/0003-96",cnpj or"")
-    _replace_all(prs,"0502485-4",d["uc"])
+    # SLIDE 1: CAPA
+    _replace_all(prs, "COMETAIS INDUSTRIA E COMERCIO DE METAIS LTDA", r.nome[:60])
+    _replace_all(prs, "02.896.727/0003-96", r.cnpj or "")
+    _replace_all(prs, "0502485-4", r.uc)
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # SLIDE 3: FATURA — SEMPRE remove imagem do Cometais, coloca do cliente
-    # ═══════════════════════════════════════════════════════════════════════
+    # SLIDE 3: SCREENSHOT DA FATURA
     try:
         s3 = list(prs.slides)[2]
-        # Encontra imagem grande da fatura (Picture > 3")
         for shape in list(s3.shapes):
             if shape.shape_type == 13 and shape.width > Inches(3):
-                left,top,width,height = shape.left,shape.top,shape.width,shape.height
+                left, top, width, height = shape.left, shape.top, shape.width, shape.height
                 shape._element.getparent().remove(shape._element)
                 if pdf_screenshot_bytes:
-                    s3.shapes.add_picture(io.BytesIO(pdf_screenshot_bytes),left,top,width,height)
-                    logger.info("[Estudo] Screenshot da fatura do cliente embutido")
-                else:
-                    logger.info("[Estudo] Imagem Cometais removida (sem screenshot)")
+                    s3.shapes.add_picture(io.BytesIO(pdf_screenshot_bytes), left, top, width, height)
+                    logger.info("[Estudo] Screenshot embutido")
                 break
     except Exception as e:
         logger.warning(f"[Estudo] Erro slide 3: {e}")
 
-    # Pontos de atenção (6 posições no template)
-    _replace_all(prs,"Demanda contratada atual.",d["pts"][0])
-    
-    _replace_all(prs,"Consumo na Ponta (Entre as 20h às 23h) muito elevado, podendo ser feito um estudo de BESS",
-                 d["pts"][1])
-    _replace_all(prs,"(Armazenamento de energia em baterias).","")
-    
-    _replace_all(prs,"Demanda não utilizada recorrente, muito desperdício todos os meses. Podendo ser ajustada com sazonalidade.",
-                 d["pts"][2])
-    
-    _replace_all(prs,"Energia reativa, multa devido ao baixo fator  de potência, corrigir com Banco de Capacitores e estudar o Filtro Capacitivo para protege-lo e os demais equipamentos da indústria.",
-                 d["pts"][3])
-    
-    _replace_all(prs,"Multas por atrasos de pagamentos constantes, requer uma gestão ativa nas contas.",
-                 d["pts"][4])
-    
-    _replace_all(prs,"Descrição de Gradeza são os registros feitos pelo medidor da UC, aqui acontecem as auditorias retroativas.",
-                 d["pts"][5])
+    # SLIDE 3: PONTOS DE ATENÇÃO
+    pts = r.pontos_atencao
+    _replace_all(prs, "Demanda contratada atual.", pts[0] if len(pts) > 0 else "")
+    _replace_all(prs, "Consumo na Ponta (Entre as 20h às 23h) muito elevado, podendo ser feito um estudo de BESS",
+                 pts[1] if len(pts) > 1 else "")
+    _replace_all(prs, "(Armazenamento de energia em baterias).", "")
+    _replace_all(prs, "Demanda não utilizada recorrente, muito desperdício todos os meses. Podendo ser ajustada com sazonalidade.",
+                 pts[2] if len(pts) > 2 else "")
+    _replace_all(prs, "Energia reativa, multa devido ao baixo fator  de potência, corrigir com Banco de Capacitores e estudar o Filtro Capacitivo para protege-lo e os demais equipamentos da indústria.",
+                 pts[3] if len(pts) > 3 else "")
+    _replace_all(prs, "Multas por atrasos de pagamentos constantes, requer uma gestão ativa nas contas.",
+                 pts[4] if len(pts) > 4 else "")
+    _replace_all(prs, "Descrição de Gradeza são os registros feitos pelo medidor da UC, aqui acontecem as auditorias retroativas.",
+                 pts[5] if len(pts) > 5 else "")
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # SLIDE 4: FATURA COMERCIALIZADORA — remover (específico do Cometais)
-    # ═══════════════════════════════════════════════════════════════════════
+    # SLIDE 4: REMOVER (específico Cometais)
     try:
-        _delete_slide(prs, 3)  # Index 3 = slide 4
-        logger.info("[Estudo] Slide 4 (Comercializadora) removido")
+        _delete_slide(prs, 3)
+        logger.info("[Estudo] Slide 4 removido")
     except Exception as e:
-        logger.warning(f"[Estudo] Erro ao remover slide 4: {e}")
+        logger.warning(f"[Estudo] Erro remover slide 4: {e}")
 
-    # Após remoção do slide 4, os índices mudam:
-    # Slide 5 (resumo) → index 3
-    # Slide 6 (com/sem) → index 4
-    # Slide 7 (crono) → index 5
-    # etc.
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # SLIDE 5→4: RESUMO TÉCNICO — tabela dinâmica
-    # ═══════════════════════════════════════════════════════════════════════
-    _replace_all(prs,"CONSOLIDADO DOS ÚLTIMOS 12 MESES:",f"CONSOLIDADO DOS ÚLTIMOS {d['n']} MESES:")
+    # SLIDE 5→4: RESUMO TÉCNICO
+    _replace_all(prs, "CONSOLIDADO DOS ÚLTIMOS 12 MESES:", f"CONSOLIDADO DOS ÚLTIMOS {r.n_faturas} MESES:")
 
     for sl in prs.slides:
         for sh in sl.shapes:
-            if hasattr(sh,'has_table') and sh.has_table and len(sh.table.rows)>=8:
-                tbl=sh.table
-                tusd_pct=63.43;te_pct=36.57
-                tusd_v=d['ca']*tusd_pct/100;te_v=d['ca']*te_pct/100
+            if hasattr(sh, "has_table") and sh.has_table and len(sh.table.rows) >= 8:
+                tbl = sh.table
+                tusd_pct, te_pct = 63.43, 36.57
+                tusd_v = r.custo_anual * tusd_pct / 100
+                te_v   = r.custo_anual * te_pct / 100
                 _set_cell(tbl,0,0,"Custo do Fio (TUSD — AME):")
                 _set_cell(tbl,0,1,f"R$ {_f(tusd_v)}")
                 _set_cell(tbl,0,2,f"{tusd_pct:.2f}%")
@@ -268,115 +154,115 @@ def gerar_estudo_pdf(faturas,alertas=None,cnpj="",valor_mensal=500,comissao=30,p
                 _set_cell(tbl,1,1,f"R$ {_f(te_v)}")
                 _set_cell(tbl,1,2,f"{te_pct:.2f}%")
                 _set_cell(tbl,2,0,"")
-                _set_cell(tbl,2,1,f"R$ {_f(d['ca'])}")
+                _set_cell(tbl,2,1,f"R$ {_f(r.custo_anual)}")
                 _set_cell(tbl,2,2,"100%")
-                _set_cell(tbl,3,0,f"DESPERDÍCIO DOS ÚLTIMOS {d['n']} MESES:")
-                _set_cell(tbl,3,1,"");_set_cell(tbl,3,2,"")
-                desp=[]
-                if d["dd"]>0:
-                    p=round(d["dd"]/d["dt"]*100,2)if d["dt"]>0 else 0
-                    desp.append(("Demanda não utilizada:",f"R$ {_f(d['dd'])}",f"{p:.2f}%"))
-                if d["du"]>0:
-                    p=round(d["du"]/d["dt"]*100,2)if d["dt"]>0 else 0
-                    desp.append(("Demanda ultrapassada:",f"R$ {_f(d['du'])}",f"{p:.2f}%"))
-                if d["dr"]>0:
-                    p=round(d["dr"]/d["dt"]*100,2)if d["dt"]>0 else 0
-                    desp.append(("Energia reativa:",f"R$ {_f(d['dr'])}",f"{p:.2f}%"))
-                if d["dm2"]>0:
-                    p=round(d["dm2"]/d["dt"]*100,2)if d["dt"]>0 else 0
-                    desp.append(("Multas por atrasos:",f"R$ {_f(d['dm2'])}",f"{p:.2f}%"))
-                if d["icms"]>0:
-                    p=round(d["icms"]/d["dt"]*100,2)if d["dt"]>0 else 0
-                    desp.append(("ICMS:",f"R$ {_f(d['icms'])}",f"{p:.2f}%"))
+                _set_cell(tbl,3,0,f"DESPERDÍCIO DOS ÚLTIMOS {r.n_faturas} MESES:")
+                _set_cell(tbl,3,1,""); _set_cell(tbl,3,2,"")
+
+                pot = r.potencial_periodo
+                def _pct(v): return round(v/pot*100,2) if pot>0 else 0
+
+                desp = []
+                if r.demanda_ociosa_r > 0:
+                    desp.append(("Demanda não utilizada:", f"R$ {_f(r.demanda_ociosa_r)}", f"{_pct(r.demanda_ociosa_r):.2f}%"))
+                if r.demanda_ultrapassagem_r > 0:
+                    desp.append(("Demanda ultrapassada:", f"R$ {_f(r.demanda_ultrapassagem_r)}", f"{_pct(r.demanda_ultrapassagem_r):.2f}%"))
+                if r.reativo_r > 0:
+                    desp.append(("Energia reativa:", f"R$ {_f(r.reativo_r)}", f"{_pct(r.reativo_r):.2f}%"))
+                if r.multas_atraso_r > 0:
+                    desp.append(("Multas por atrasos:", f"R$ {_f(r.multas_atraso_r)}", f"{_pct(r.multas_atraso_r):.2f}%"))
+                if r.icms_recuperavel_r > 0:
+                    desp.append(("ICMS recuperável:", f"R$ {_f(r.icms_recuperavel_r)}", f"{_pct(r.icms_recuperavel_r):.2f}%"))
+
                 for i in range(6):
-                    row=4+i
-                    if row>=len(tbl.rows):break
-                    if i<len(desp):
-                        _set_cell(tbl,row,0,desp[i][0])
-                        _set_cell(tbl,row,1,desp[i][1])
-                        _set_cell(tbl,row,2,desp[i][2])
-                    elif i==len(desp):
-                        _set_cell(tbl,row,0,"")
-                        _set_cell(tbl,row,1,f"R$ {_f(d['da'])}")
-                        _set_cell(tbl,row,2,"100%")
+                    row = 4 + i
+                    if row >= len(tbl.rows): break
+                    if i < len(desp):
+                        _set_cell(tbl,row,0,desp[i][0]); _set_cell(tbl,row,1,desp[i][1]); _set_cell(tbl,row,2,desp[i][2])
+                    elif i == len(desp):
+                        _set_cell(tbl,row,0,""); _set_cell(tbl,row,1,f"R$ {_f(r.potencial_anual)}"); _set_cell(tbl,row,2,"100%")
                     else:
-                        _set_cell(tbl,row,0,"");_set_cell(tbl,row,1,"");_set_cell(tbl,row,2,"")
+                        _set_cell(tbl,row,0,""); _set_cell(tbl,row,1,""); _set_cell(tbl,row,2,"")
                 break
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # SLIDE 6→5: COM GESTÃO vs SEM GESTÃO — valores dinâmicos
-    # ═══════════════════════════════════════════════════════════════════════
-    _replace_all(prs,"-R$ 183.602,66",f"-R$ {_f(d['da'])}")
-    _replace_all(prs,"+R$ 183.602,66",f"+R$ {_f(d['da'])}")
+    # SLIDE 6→5: COM vs SEM GESTÃO
+    _replace_all(prs, "-R$ 183.602,66", f"-R$ {_f(r.potencial_anual)}")
+    _replace_all(prs, "+R$ 183.602,66", f"+R$ {_f(r.potencial_anual)}")
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # SLIDE 7→6: CRONOGRAMA — ações dinâmicas do cliente
-    # ═══════════════════════════════════════════════════════════════════════
-    # Título do mês
-    _replace_all(prs,"Cronograma de Ações (Abril)",f"Cronograma de Ações ({mes_atual})")
+    # SLIDE 7→6: CRONOGRAMA
+    _replace_all(prs, "Cronograma de Ações (Abril)", f"Cronograma de Ações ({mes_atual})")
+    acoes = r.acoes
 
-    # Ações do Cometais → ações dinâmicas (find & replace individual)
-    _replace_all(prs,"Buscar pagamentos indevidos e pedir devolução em dobro",
-                 d["acoes"][0][1] if len(d["acoes"])>0 else "")
-    _replace_all(prs,"Portabilidade  para Âmbar Energia no Mercado Livre",
-                 d["acoes"][2][0] if len(d["acoes"])>2 else "Migração\npara o\nMercado Livre")
-    _replace_all(prs,"Atual proprietária da AME. Reduzir preço",
-                 d["acoes"][2][1].split("\n")[0] if len(d["acoes"])>2 else "")
-    _replace_all(prs,"e estreitar o relacionamento",
-                 "\n".join(d["acoes"][2][1].split("\n")[1:]) if len(d["acoes"])>2 else "")
-    _replace_all(prs,"Estudar  o consumo no","Ajustar a\ndemanda" if d["ut"]<85 else "Estudar\no consumo no")
-    _replace_all(prs,"horário de ponta","contratada\nociosa" if d["ut"]<85 else "horário de\nponta")
-    _replace_all(prs,"Instalar analisador, levantar a carga e fazer um estudo do BESS",
-                 d["acoes"][1][1] if len(d["acoes"])>1 else "")
-    _replace_all(prs,"Ajustar Banco de Capacitores existentes",
-                 d["acoes"][3][0] if len(d["acoes"])>3 else "")
-    _replace_all(prs,"Corrigir horário indutivo dos bancos URGENTE",
-                 d["acoes"][3][1] if len(d["acoes"])>3 else "")
-    _replace_all(prs,"Fazer laudo para separar o que é produção",
-                 d["acoes"][4][1] if len(d["acoes"])>4 else "")
-    _replace_all(prs,"Instalar Filtro Capacitivo","Contestar\nCOSIP" if d["cosip_m"]>300 else "Relatório\nMensal de")
-    _replace_all(prs,"e corrigir Banco de Capacitores","junto à\nPrefeitura" if d["cosip_m"]>300 else "Resultado")
-    _replace_all(prs,"Para proteção dos Bancos de","Valor médio" if d["cosip_m"]>300 else "Prestação de contas")
-    _replace_all(prs,"Capacitores e motores",f"R$ {_fi(d['cosip_m'])}/mês" if d["cosip_m"]>300 else "com economia e metas")
-    _replace_all(prs,"Se não houver aumento do consumo, ajustar",
-                 d["acoes"][-1][1] if d["acoes"] else "")
-    _replace_all(prs,"Ajustar a demanda contratada ociosa",
-                 d["acoes"][-1][0] if d["acoes"] else "")
+    _replace_all(prs, "Buscar pagamentos indevidos e pedir devolução em dobro",
+                 acoes[0][1] if len(acoes)>0 else "")
+    _replace_all(prs, "Portabilidade  para Âmbar Energia no Mercado Livre",
+                 acoes[2][0] if len(acoes)>2 else "Migração\npara o\nMercado Livre")
+    _replace_all(prs, "Atual proprietária da AME. Reduzir preço",
+                 acoes[2][1].split("\n")[0] if len(acoes)>2 else "")
+    _replace_all(prs, "e estreitar o relacionamento",
+                 "\n".join(acoes[2][1].split("\n")[1:]) if len(acoes)>2 else "")
+    _replace_all(prs, "Estudar  o consumo no",
+                 "Ajustar a\ndemanda" if r.utilizacao_demanda<85 else "Estudar\no consumo no")
+    _replace_all(prs, "horário de ponta",
+                 "contratada\nociosa" if r.utilizacao_demanda<85 else "horário de\nponta")
+    _replace_all(prs, "Instalar analisador, levantar a carga e fazer um estudo do BESS",
+                 acoes[1][1] if len(acoes)>1 else "")
+    _replace_all(prs, "Ajustar Banco de Capacitores existentes",
+                 acoes[3][0] if len(acoes)>3 else "")
+    _replace_all(prs, "Corrigir horário indutivo dos bancos URGENTE",
+                 acoes[3][1] if len(acoes)>3 else "")
+    _replace_all(prs, "Fazer laudo para separar o que é produção",
+                 acoes[4][1] if len(acoes)>4 else "")
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # SLIDE 9→8: SISTEMA DE MONITORAMENTO — nome do cliente
-    # ═══════════════════════════════════════════════════════════════════════
-    _replace_all(prs,"João Gomes",d["nome"][:25])
+    cosip_m = r.cosip_media
+    _replace_all(prs, "Instalar Filtro Capacitivo",
+                 "Contestar\nCOSIP" if cosip_m>300 else "Relatório\nMensal de")
+    _replace_all(prs, "e corrigir Banco de Capacitores",
+                 "junto à\nPrefeitura" if cosip_m>300 else "Resultado")
+    _replace_all(prs, "Para proteção dos Bancos de",
+                 "Valor médio" if cosip_m>300 else "Prestação de contas")
+    _replace_all(prs, "Capacitores e motores",
+                 f"R$ {_fi(cosip_m)}/mês" if cosip_m>300 else "com economia e metas")
+    _replace_all(prs, "Se não houver aumento do consumo, ajustar",
+                 acoes[-1][1] if acoes else "")
+    _replace_all(prs, "Ajustar a demanda contratada ociosa",
+                 acoes[-1][0] if acoes else "")
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # SLIDE 10→9: PROPOSTA — valores dinâmicos
-    # ═══════════════════════════════════════════════════════════════════════
-    _replace_all(prs,"R$ 1.500,00 nos três primeiros meses",f"R$ {_fi(valor_mensal)},00/mês por UC")
-    _replace_all(prs,"R$ 2.500,00 no quarto mês em diante",f"{comissao}% dos valores recuperados")
-    _replace_all(prs,"30% dos valores que forem recuperados","")
+    # SLIDE 9→8: MONITORAMENTO
+    _replace_all(prs, "João Gomes", r.nome[:25])
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # SALVAR E CONVERTER
-    # ═══════════════════════════════════════════════════════════════════════
+    # SLIDE 10→9: PROPOSTA
+    _replace_all(prs, "R$ 1.500,00 nos três primeiros meses", f"R$ {_fi(valor_mensal)},00/mês por UC")
+    _replace_all(prs, "R$ 2.500,00 no quarto mês em diante", f"{comissao}% dos valores recuperados")
+    _replace_all(prs, "30% dos valores que forem recuperados", "")
+
+    # CONVERTER PPTX → PDF
     with tempfile.TemporaryDirectory() as tmp:
-        px=os.path.join(tmp,"estudo.pptx")
+        px = os.path.join(tmp, "estudo.pptx")
         prs.save(px)
-        sz=os.path.getsize(px)
-        logger.info(f"[Estudo] PPTX: {sz} bytes, {len(list(prs.slides))} slides")
-        profile=os.path.join(tmp,"lo_profile");os.makedirs(profile,exist_ok=True)
+        logger.info(f"[Estudo] PPTX: {os.path.getsize(px)} bytes, {len(list(prs.slides))} slides")
+        profile = os.path.join(tmp, "lo_profile")
+        os.makedirs(profile, exist_ok=True)
         try:
-            subprocess.run(["soffice","--headless","--norestore","--nofirststartwizard",
-                f"-env:UserInstallation=file://{profile}","--convert-to","pdf","--outdir",tmp,px],
-                check=True,timeout=60,capture_output=True)
-            pdfs=[f for f in os.listdir(tmp)if f.endswith('.pdf')]
+            subprocess.run(
+                ["soffice","--headless","--norestore","--nofirststartwizard",
+                 f"-env:UserInstallation=file://{profile}",
+                 "--convert-to","pdf","--outdir",tmp,px],
+                check=True, timeout=60, capture_output=True
+            )
+            pdfs = [f for f in os.listdir(tmp) if f.endswith(".pdf")]
             if pdfs:
-                with open(os.path.join(tmp,pdfs[0]),"rb")as f:buf=io.BytesIO(f.read())
+                with open(os.path.join(tmp, pdfs[0]), "rb") as f:
+                    buf = io.BytesIO(f.read())
                 buf.seek(0)
-                logger.info(f"[Estudo] PDF: {buf.getbuffer().nbytes} bytes, UC {d['uc']}")
+                logger.info(f"[Estudo] PDF: {buf.getbuffer().nbytes} bytes, UC {r.uc}")
                 return buf
         except Exception as e:
             logger.warning(f"[Estudo] soffice falhou ({e}), retornando PPTX")
-        with open(px,"rb")as f:buf=io.BytesIO(f.read())
-        buf.seek(0);return buf
+        with open(px, "rb") as f:
+            buf = io.BytesIO(f.read())
+        buf.seek(0)
+        return buf
 
-gerar_estudo_pptx=gerar_estudo_pdf
+
+gerar_estudo_pptx = gerar_estudo_pdf
