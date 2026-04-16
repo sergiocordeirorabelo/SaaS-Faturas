@@ -115,8 +115,33 @@ async def _parse_and_analyze(db: SupabaseClient, task_id: str, pdfs: list, task:
             except Exception as e:
                 logger.warning(f"[IA] Texto não gerado para UC {uc}: {e}")
 
-            await db.save_fatura_analise(analise_dict)
+            await db.save_fatura_analise(fatura_id, analise_dict)
             logger.info(f"[Análise] ✓ UC {uc} {mes_ref} analisado (score={analise_dict.get('score_eficiencia')})")
+
+            # Gerar alertas automaticamente
+            try:
+                alertas_list = analise_dict.get("alertas") or []
+                for alerta in alertas_list[:5]:
+                    if isinstance(alerta, dict) and alerta.get("titulo"):
+                        alert_payload = {
+                            "uc": uc,
+                            
+                            "tipo": alerta.get("tipo", "info"),
+                            "severidade": alerta.get("severidade", "medio"),
+                            "titulo": alerta.get("titulo", ""),
+                            "descricao": alerta.get("descricao", ""),
+                            "resolvido": False,
+                        }
+                        def _save_alert(p=alert_payload):
+                            try:
+                                db._client.table("alertas_de_fatura").upsert(
+                                    p, on_conflict="uc,titulo"
+                                ).execute()
+                            except:
+                                pass
+                        await loop.run_in_executor(None, _save_alert)
+            except Exception as ae:
+                logger.warning(f"[Alertas] Falha ao gerar alertas UC {uc}: {ae}")
 
         except Exception as exc:
             logger.error(f"[Parse] Erro UC {pdf_info.get('uc')} {pdf_info.get('mes_referencia')}: {exc}", exc_info=True)

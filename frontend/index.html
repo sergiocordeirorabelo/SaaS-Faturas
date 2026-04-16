@@ -433,6 +433,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-
         <option value="">Todas as UCs</option>
       </select>
       <span id="fat-count" style="font-size:12px;color:var(--muted);display:flex;align-items:center"></span>
+      <button class="btn amber" onclick="analisarPendentes(this)" style="margin-left:auto">⚡ Analisar Pendentes</button>
     </div>
     <div id="faturas-lista"></div>
   </div>
@@ -3129,18 +3130,26 @@ function renderFaturas(){
     div.style.marginBottom='12px';
     var rows = cli.itens.map(function(f){
       var a = Array.isArray(f.faturas_analise)?f.faturas_analise[0]:(f.faturas_analise||{});
-      return '<div class="table-row" style="grid-template-columns:2fr 1fr 1fr 80px 80px">'
+      var temAnalise = !!(a && a.score_eficiencia);
+      var scoreHtml = temAnalise
+        ? '<span class="badge ok" style="font-size:9px">'+a.score_eficiencia+'/100</span>'
+        : '<span class="badge gray" style="font-size:9px">—</span>';
+      var acaoHtml = temAnalise
+        ? '<button class="btn" style="font-size:10px;padding:3px 8px" onclick="irParaAnaliseUC(\''+f.uc+'\')">🔍</button>'
+        : '<button class="btn amber" style="font-size:10px;padding:3px 8px" onclick="analisarFatura(\''+f.id+'\',this)">⚡ Analisar</button>';
+      return '<div class="table-row" style="grid-template-columns:2fr 1fr 1fr 70px 140px">'
         +'<div class="td">'+f.uc+'<div class="td muted">'+f.mes_referencia+'</div></div>'
-        +'<div class="td">'+f.subgrupo+' · '+f.modalidade+'</div>'
+        +'<div class="td">'+(f.subgrupo||'')+' · '+(f.modalidade||'')+'</div>'
         +'<div class="td r">R$ '+(parseFloat(f.total_a_pagar)||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div>'
-        +'<div class="td r"><span class="badge '+(a.score_eficiencia?'ok':'gray')+'" style="font-size:9px">'+(a.score_eficiencia?a.score_eficiencia+'/100':'—')+'</span></div>'
-        +'<div class="td r"><button class="btn" style="font-size:10px;padding:3px 8px" onclick="downloadRelatorio(\''+f.id+'\')">PDF</button></div>'
+        +'<div class="td r">'+scoreHtml+'</div>'
+        +'<div class="td r" style="display:flex;gap:4px;justify-content:flex-end">'+acaoHtml
+        +'<button class="btn" style="font-size:10px;padding:3px 8px" onclick="downloadRelatorio(\''+f.id+'\')">📄</button></div>'
         +'</div>';
     }).join('');
     div.innerHTML='<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
       +'<div style="font-size:13px;font-weight:600">'+cli.nome.slice(0,50)+'</div>'
       +'<span class="badge gray">'+cli.itens.length+' faturas</span></div>'
-      +'<div class="table-head" style="grid-template-columns:2fr 1fr 1fr 80px 80px"><div class="th">UC / Mês</div><div class="th">Tipo</div><div class="th r">Valor</div><div class="th r">Score</div><div class="th r">PDF</div></div>'
+      +'<div class="table-head" style="grid-template-columns:2fr 1fr 1fr 70px 140px"><div class="th">UC / Mês</div><div class="th">Tipo</div><div class="th r">Valor</div><div class="th r">Score</div><div class="th r">Ações</div></div>'
       +rows;
     cont.appendChild(div);
   });
@@ -3159,10 +3168,54 @@ async function downloadRelatorio(faturaId){
   }
 
   if(!path){ alert('PDF não disponível para esta fatura.'); return; }
-
-  // Bucket público — URL direta sem auth
   var url = SB+'/storage/v1/object/public/Faturas/'+path;
   window.open(url,'_blank');
+}
+
+async function analisarFatura(faturaId, btnEl){
+  if(btnEl){ btnEl.disabled=true; btnEl.textContent='⏳...'; }
+  try{
+    var r = await fetch(RW+'/analisar/fatura/'+faturaId);
+    var d = await r.json();
+    if(d.ok){
+      if(btnEl){ btnEl.textContent='✅ '+d.score+'/100'; btnEl.className='btn green'; btnEl.disabled=true; }
+      await carregarDados();
+    } else {
+      alert('Erro: '+(d.error||'falha na análise'));
+      if(btnEl){ btnEl.disabled=false; btnEl.textContent='⚡ Analisar'; }
+    }
+  }catch(e){
+    alert('Erro de conexão: '+e.message);
+    if(btnEl){ btnEl.disabled=false; btnEl.textContent='⚡ Analisar'; }
+  }
+}
+
+function irParaAnaliseUC(uc){
+  var cl = D.clientes.find(function(c){ return (c.ucs||[]).includes(uc); });
+  if(cl){
+    navegar('analises', document.getElementById('sb-analises'));
+    abrirAnaliseCliente(cl.id);
+  } else {
+    navegar('analises', document.getElementById('sb-analises'));
+    alert('UC '+uc+' não está vinculada a nenhum cliente. Cadastre o cliente primeiro.');
+  }
+}
+
+async function analisarPendentes(btnEl){
+  if(btnEl){ btnEl.disabled=true; btnEl.textContent='⏳ Analisando...'; }
+  try{
+    var r = await fetch(RW+'/analisar/pendentes');
+    var d = await r.json();
+    if(d.ok){
+      alert('✅ '+d.analisadas+' fatura(s) analisada(s) de '+d.total_pendentes+' pendente(s)');
+      await carregarDados();
+    } else {
+      alert('Erro: '+(d.error||'falha'));
+    }
+  }catch(e){
+    alert('Erro de conexão: '+e.message);
+  }
+  if(btnEl){ btnEl.disabled=false; btnEl.textContent='⚡ Analisar Pendentes'; }
 }
 
 // ── ALERTAS ──────────────────────────────────────────────────────────────────

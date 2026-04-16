@@ -283,6 +283,89 @@ def _inferir_modelo(alertas: list) -> str:
     return "assinatura"
 
 
+async def handle_analisar_fatura(request: web.Request) -> web.Response:
+    """Analisa uma fatura específica sob demanda."""
+    fatura_id = request.match_info["fatura_id"]
+    try:
+        from src.parsers.analyzer_fatura import analisar_fatura
+        db = SupabaseClient()
+        loop = asyncio.get_event_loop()
+
+        def _get():
+            return db._client.table("faturas_parsed").select("*").eq("id", fatura_id).execute()
+        result = await loop.run_in_executor(None, _get)
+        rows = result.data or []
+        if not rows:
+            return web.json_response({"error": "Fatura não encontrada"}, status=404)
+
+        dados = rows[0]
+        analise = analisar_fatura(dados)
+        analise["fatura_id"] = fatura_id
+        analise["uc"] = dados.get("uc")
+        analise["mes_referencia"] = dados.get("mes_referencia")
+
+        await db.save_fatura_analise(fatura_id, analise)
+
+        # Gerar alertas
+        for al in (analise.get("alertas") or [])[:5]:
+            if isinstance(al, dict) and al.get("titulo"):
+                def _save_al(p={
+                    "uc": dados.get("uc"), 
+                    "tipo": al.get("tipo","info"), "severidade": al.get("severidade","medio"),
+                    "titulo": al.get("titulo",""), "descricao": al.get("descricao",""),
+                    "resolvido": False,
+                }):
+                    try:
+                        db._client.table("alertas_de_fatura").upsert(p, on_conflict="uc,titulo").execute()
+                    except: pass
+                await loop.run_in_executor(None, _save_al)
+
+        return web.json_response({
+            "ok": True, "fatura_id": fatura_id,
+            "score": analise.get("score_eficiencia"),
+            "economia_anual": analise.get("potencial_economia_anual"),
+        })
+    except Exception as e:
+        logger.exception(f"[Analisar] Erro fatura {fatura_id}: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_analisar_pendentes(request: web.Request) -> web.Response:
+    """Analisa todas as faturas que não têm análise."""
+    try:
+        from src.parsers.analyzer_fatura import analisar_fatura
+        db = SupabaseClient()
+        loop = asyncio.get_event_loop()
+
+        def _get_pendentes():
+            # Faturas sem análise
+            parsed = db._client.table("faturas_parsed").select("id,uc,mes_referencia").execute()
+            analise = db._client.table("faturas_analise").select("fatura_id").execute()
+            analisadas = set(r["fatura_id"] for r in (analise.data or []))
+            return [f for f in (parsed.data or []) if f["id"] not in analisadas]
+
+        pendentes = await loop.run_in_executor(None, _get_pendentes)
+        count = 0
+        for p in pendentes:
+            try:
+                def _get_fat(fid=p["id"]):
+                    return db._client.table("faturas_parsed").select("*").eq("id", fid).execute()
+                result = await loop.run_in_executor(None, _get_fat)
+                dados = (result.data or [{}])[0]
+                analise = analisar_fatura(dados)
+                analise["fatura_id"] = p["id"]
+                analise["uc"] = p["uc"]
+                analise["mes_referencia"] = p["mes_referencia"]
+                await db.save_fatura_analise(p["id"], analise)
+                count += 1
+            except Exception as e:
+                logger.warning(f"[Pendentes] Erro UC {p['uc']}: {e}")
+
+        return web.json_response({"ok": True, "analisadas": count, "total_pendentes": len(pendentes)})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def handle_estudo_uc(request: web.Request) -> web.Response:
     """Gera Estudo Técnico + Proposta Comercial em PDF para uma UC."""
     uc = request.match_info.get("uc", "")
@@ -643,6 +726,8 @@ async def criar_app() -> web.Application:
     app.router.add_get("/relatorio/{fatura_id}",    handle_relatorio_fatura)
     app.router.add_get("/relatorio/uc/{uc}",        handle_relatorio_uc)
     app.router.add_get("/analise/uc/{uc}",          handle_analise_uc)
+    app.router.add_get("/analisar/fatura/{fatura_id}", handle_analisar_fatura)
+    app.router.add_get("/analisar/pendentes",       handle_analisar_pendentes)
     app.router.add_get("/estudo/uc/{uc}",           handle_estudo_uc)
     app.router.add_post("/diagnostico",             handle_diagnostico)
     app.router.add_patch("/db/{table}",             handle_db_patch)
