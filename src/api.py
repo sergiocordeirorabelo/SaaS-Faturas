@@ -333,7 +333,7 @@ async def handle_estudo_uc(request: web.Request) -> web.Response:
                     tmp.close()
                     try:
                         from src.parsers.parser_fatura_ia import _render_pdf_screenshot
-                        return _render_pdf_screenshot(tmp.name, page_num=0, dpi=2.5)
+                        return _render_pdf_screenshot(tmp.name, page_num=0, dpi=5.0)
                     finally:
                         os.unlink(tmp.name)
                 pdf_screenshot = await loop.run_in_executor(None, _render_screenshot)

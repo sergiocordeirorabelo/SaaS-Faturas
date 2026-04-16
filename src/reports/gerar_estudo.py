@@ -58,7 +58,25 @@ def _replace_all(prs, old, new):
                                     if old in r.text:
                                         r.text = r.text.replace(old, new)
 
-def _set_cell(tbl, row, col, text):
+def _set_autofit(shape):
+    """Habilita auto-fit de texto na shape (encolhe para caber no box)."""
+    try:
+        from pptx.oxml.ns import qn
+        from lxml import etree
+        txBody = shape.text_frame._txBody
+        bodyPr = txBody.find(qn('a:bodyPr'))
+        if bodyPr is not None:
+            # Remove normAutofit ou spAutoFit existentes
+            for child in list(bodyPr):
+                if child.tag in (qn('a:normAutofit'), qn('a:spAutofit'), qn('a:noAutofit')):
+                    bodyPr.remove(child)
+            # Adiciona normAutofit (encolhe fonte para caber)
+            bodyPr.append(etree.fromstring('<a:normAutofit xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"/>'))
+    except Exception:
+        pass
+
+
+
     cell = tbl.cell(row, col)
     for p in cell.text_frame.paragraphs:
         if p.runs:
@@ -129,6 +147,22 @@ def gerar_estudo_pdf(
                  pts[4] if len(pts) > 4 else "")
     _replace_all(prs, "Descrição de Gradeza são os registros feitos pelo medidor da UC, aqui acontecem as auditorias retroativas.",
                  pts[5] if len(pts) > 5 else "")
+
+    # SLIDE 5: REMOVER FREEFORM OVAL decorativa (shape index 4)
+    try:
+        slide5 = list(prs.slides)[4]
+        shapes_to_remove = [
+            s for s in slide5.shapes
+            if s.shape_type == 5 and not s.has_text_frame  # FREEFORM sem texto
+            or (s.shape_type == 5 and s.has_text_frame and not s.text_frame.text.strip())
+        ]
+        for s in shapes_to_remove:
+            sp = s._element
+            sp.getparent().remove(sp)
+        if shapes_to_remove:
+            logger.info(f"[Estudo] {len(shapes_to_remove)} freeform(s) removida(s) do slide 5")
+    except Exception as e:
+        logger.warning(f"[Estudo] Erro remover freeform slide 5: {e}")
 
     # SLIDE 4: REMOVER (específico Cometais)
     try:
@@ -227,6 +261,16 @@ def gerar_estudo_pdf(
                  acoes[-1][1] if acoes else "")
     _replace_all(prs, "Ajustar a demanda contratada ociosa",
                  acoes[-1][0] if acoes else "")
+
+    # Auto-fit em todas as shapes de texto do cronograma
+    try:
+        # Cronograma é slide 7→6 (índice 5 após deleção do slide 4)
+        crono_slide = list(prs.slides)[5]
+        for shape in crono_slide.shapes:
+            if shape.has_text_frame and shape.text_frame.text.strip():
+                _set_autofit(shape)
+    except Exception as e:
+        logger.warning(f"[Estudo] Auto-fit cronograma: {e}")
 
     # SLIDE 9→8: MONITORAMENTO
     _replace_all(prs, "João Gomes", r.nome[:25])
