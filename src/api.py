@@ -307,10 +307,9 @@ async def handle_estudo_uc(request: web.Request) -> web.Response:
                 .order("mes_referencia", desc=True).limit(limit).execute().data or []
             alertas = db._client.table("alertas_de_fatura").select("*").eq("uc", uc)\
                 .eq("resolvido", False).execute().data or []
-            # CORRIGIDO: tabela é "empresas", não "clientes"
-            empresas = db._client.table("empresas").select("cnpj")\
+            clientes = db._client.table("clientes").select("cnpj")\
                 .contains("ucs", [uc]).limit(1).execute().data or []
-            cnpj = empresas[0].get("cnpj", "") if empresas else ""
+            cnpj = clientes[0].get("cnpj", "") if clientes else ""
             return faturas, alertas, cnpj
 
         faturas, alertas, cnpj = await loop.run_in_executor(None, _buscar)
