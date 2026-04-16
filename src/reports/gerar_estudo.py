@@ -147,6 +147,11 @@ def gerar_estudo_pdf(
                  pts[4] if len(pts) > 4 else "")
     _replace_all(prs, "Descrição de Gradeza são os registros feitos pelo medidor da UC, aqui acontecem as auditorias retroativas.",
                  pts[5] if len(pts) > 5 else "")
+    # Ponto 6: shape tem kerning manual por palavra — reconstruir XML limpo
+    try:
+        _substituir_shape_ponto6(list(prs.slides)[2], pts[5] if len(pts) > 5 else "")
+    except Exception as _e:
+        logger.warning(f"[Estudo] ponto6 rebuild: {_e}")
 
     # SLIDE 5: REMOVER FREEFORM OVAL decorativa (shape index 4)
     try:
@@ -222,6 +227,16 @@ def gerar_estudo_pdf(
     # SLIDE 6→5: COM vs SEM GESTÃO
     _replace_all(prs, "-R$ 183.602,66", f"-R$ {_f(r.potencial_anual)}")
     _replace_all(prs, "+R$ 183.602,66", f"+R$ {_f(r.potencial_anual)}")
+    # Remove 3ª linha desnecessária dos boxes e aplica auto-fit
+    _replace_all(prs, "Somente com uma auditoria superficial", "")
+    _replace_all(prs, "Sem incluir outros meios de economia", "")
+    try:
+        gestao_slide = list(prs.slides)[4]  # slide 6→5 após deleção
+        for shape in gestao_slide.shapes:
+            if shape.has_text_frame and shape.text_frame.text.strip():
+                _set_autofit(shape)
+    except Exception as _e:
+        logger.warning(f"[Estudo] autofit gestao: {_e}")
 
     # SLIDE 7→6: CRONOGRAMA
     _replace_all(prs, "Cronograma de Ações (Abril)", f"Cronograma de Ações ({mes_atual})")
@@ -310,3 +325,45 @@ def gerar_estudo_pdf(
 
 
 gerar_estudo_pptx = gerar_estudo_pdf
+
+
+def _substituir_shape_ponto6(slide, novo_texto):
+    """
+    Substitui o shape 38 (ponto 6) do slide 3 reconstruindo o XML
+    para evitar herdar kerning manual palavra-por-palavra do template.
+    """
+    try:
+        from pptx.oxml.ns import qn
+        shape = slide.shapes[38]
+        txBody = shape.text_frame._txBody
+        # Remove todos os parágrafos existentes
+        for p in txBody.findall(qn('a:p')):
+            txBody.remove(p)
+        # Cria novo parágrafo limpo
+        from lxml import etree
+        p_xml = f'''<a:p xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <a:pPr marL="219710" marR="5080" indent="-207645">
+    <a:lnSpc><a:spcPct val="119200"/></a:lnSpc>
+    <a:spcBef><a:spcPts val="45"/></a:spcBef>
+  </a:pPr>
+  <a:r>
+    <a:rPr dirty="0" sz="1875" b="1">
+      <a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>
+      <a:latin typeface="Arial"/><a:cs typeface="Arial"/>
+    </a:rPr>
+    <a:t>6  </a:t>
+  </a:r>
+  <a:r>
+    <a:rPr dirty="0" sz="1200">
+      <a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>
+      <a:latin typeface="Lucida Sans Unicode"/><a:cs typeface="Lucida Sans Unicode"/>
+    </a:rPr>
+    <a:t>{novo_texto}</a:t>
+  </a:r>
+</a:p>'''
+        txBody.append(etree.fromstring(p_xml))
+        return True
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"[Estudo] Erro substituir ponto6: {e}")
+        return False
