@@ -183,10 +183,15 @@ async def process_task(db: SupabaseClient, task: dict) -> None:
 
     except Exception as exc:
         error_msg = str(exc)
-        if "inválid" in error_msg.lower() or "invalida" in error_msg.lower():
+        lower = error_msg.lower()
+        if "limite de tentativas" in lower or "tente novamente daqui" in lower:
+            msg = "Rate limit da Amazonas Energia. Aguarde 10-30 minutos antes de tentar novamente."
+            await db.update_task_status(task_id, "erro_extracao", msg)
+            logger.warning(f"[Task {task_id}] Rate limit — cooldown acionado.")
+        elif "inválid" in lower or "invalida" in lower:
             await db.update_task_status(task_id, "credenciais_invalidas", "CPF ou senha inválidos.")
             logger.warning(f"[Task {task_id}] Credenciais inválidas.")
-        elif "401" in error_msg or "expirado" in error_msg.lower():
+        elif "401" in error_msg or "expirado" in lower:
             await db.update_task_status(task_id, "credenciais_invalidas", "Sessão expirada.")
             logger.warning(f"[Task {task_id}] JWT expirado.")
         elif "ReadTimeout" in error_msg or "Timeout" in error_msg:
@@ -201,7 +206,8 @@ async def process_task(db: SupabaseClient, task: dict) -> None:
 async def auto_reextract(db: SupabaseClient) -> None:
     """
     Cron automático: verifica clientes MONITORADOS que precisam de re-extração.
-    Só re-extrai clientes com monitorar=true e última extração há mais de 24h.
+    Só cria nova tarefa se a MAIS RECENTE do CPF (qualquer status) tem > 24h
+    e não está em pendente/em_progresso — evita loop de rate limit.
     """
     logger.info("Cron: verificando clientes monitorados...")
 
@@ -209,10 +215,12 @@ async def auto_reextract(db: SupabaseClient) -> None:
         loop = asyncio.get_event_loop()
 
         def _query():
+            from datetime import timedelta
+            since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
             result = (
                 db._client.table("extraction_requests")
-                .select("id,credentials,created_at,concessionaria")
-                .eq("status", "concluido")
+                .select("id,credentials,created_at,concessionaria,status")
+                .gte("created_at", since)
                 .order("created_at", desc=True)
                 .execute()
             )
@@ -220,10 +228,10 @@ async def auto_reextract(db: SupabaseClient) -> None:
 
         tasks = await loop.run_in_executor(None, _query)
 
-        # Agrupa por CPF — pega só a mais recente de cada (apenas monitorados)
-        latest_by_cpf = {}
+        # Agrupa por CPF — pega a mais recente (QUALQUER status) de cada monitorado
+        latest_by_cpf: dict[str, dict] = {}
         for t in tasks:
-            creds = t.get("credentials", {})
+            creds = t.get("credentials") or {}
             cpf = creds.get("cpf_cnpj", "")
             if cpf and cpf not in latest_by_cpf and creds.get("monitorar"):
                 latest_by_cpf[cpf] = t
@@ -232,38 +240,50 @@ async def auto_reextract(db: SupabaseClient) -> None:
         created_count = 0
 
         for cpf, t in latest_by_cpf.items():
+            status = t.get("status")
+            # Já tem uma na fila — não duplica
+            if status in ("pendente", "em_progresso"):
+                logger.debug(f"Cron: CPF {cpf[:5]}*** já tem tarefa em '{status}', skip")
+                continue
+
             created_at = datetime.fromisoformat(t["created_at"].replace("Z", "+00:00"))
             hours_ago = (now - created_at).total_seconds() / 3600
 
-            if hours_ago > 24:
-                creds = t.get("credentials", {})
-                senha = creds.get("senha", "")
-                if not senha:
-                    continue
+            # Cooldown de 24h independente do resultado da última — quebra loop de erro
+            if hours_ago <= 24:
+                logger.debug(
+                    f"Cron: CPF {cpf[:5]}*** última tarefa ({status}) há {hours_ago:.1f}h, aguardando 24h"
+                )
+                continue
 
-                # Mantém as configurações originais (meses, UCs, monitorar)
-                new_creds = {
-                    "cpf_cnpj": cpf,
-                    "senha": senha,
-                    "meses": creds.get("meses", 12),
-                    "monitorar": True,
-                }
-                if creds.get("selected_ucs"):
-                    new_creds["selected_ucs"] = creds["selected_ucs"]
+            creds = t.get("credentials", {})
+            senha = creds.get("senha", "")
+            if not senha:
+                continue
 
-                def _insert(creds=new_creds, conc=t["concessionaria"]):
-                    db._client.table("extraction_requests").insert({
-                        "concessionaria": conc,
-                        "credentials": creds,
-                        "status": "pendente",
-                        "status_detail": "Re-extração automática (monitoramento).",
-                    }).execute()
+            # Mantém as configurações originais (meses, UCs, monitorar)
+            new_creds = {
+                "cpf_cnpj": cpf,
+                "senha": senha,
+                "meses": creds.get("meses", 12),
+                "monitorar": True,
+            }
+            if creds.get("selected_ucs"):
+                new_creds["selected_ucs"] = creds["selected_ucs"]
 
-                await loop.run_in_executor(None, _insert)
-                created_count += 1
+            def _insert(creds=new_creds, conc=t["concessionaria"]):
+                db._client.table("extraction_requests").insert({
+                    "concessionaria": conc,
+                    "credentials": creds,
+                    "status": "pendente",
+                    "status_detail": "Re-extração automática (monitoramento).",
+                }).execute()
 
-                # Jitter entre criações para não sobrecarregar
-                await asyncio.sleep(random.uniform(0.5, 2.0))
+            await loop.run_in_executor(None, _insert)
+            created_count += 1
+
+            # Jitter entre criações para não sobrecarregar
+            await asyncio.sleep(random.uniform(0.5, 2.0))
 
         if created_count > 0:
             logger.info(f"Cron: {created_count} tarefa(s) de monitoramento criada(s).")
@@ -293,34 +313,18 @@ async def run_worker() -> None:
         async with semaphore:
             await process_task(db, task)
 
-    async def _deve_rodar_cron() -> bool:
-        """Checa no Supabase se o cron rodou nas últimas 20h — evita loop em redeploy."""
-        try:
-            loop = asyncio.get_event_loop()
-            def _check():
-                from datetime import timezone
-                result = db._client.table("extraction_requests") \
-                    .select("created_at") \
-                    .like("status_detail", "Re-extração automática%") \
-                    .order("created_at", desc=True) \
-                    .limit(1) \
-                    .execute()
-                if result.data:
-                    last = datetime.fromisoformat(result.data[0]["created_at"].replace("Z", "+00:00"))
-                    hours = (datetime.now(timezone.utc) - last).total_seconds() / 3600
-                    logger.debug(f"Cron: última re-extração há {hours:.1f}h")
-                    return hours > 20
-                return True
-            return await loop.run_in_executor(None, _check)
-        except Exception as exc:
-            logger.warning(f"Cron: erro ao checar horário: {exc}")
-            return False
+    # Cron interval em segundos — 1h é suficiente; auto_reextract tem seu próprio
+    # dedup por CPF (24h) então rodar com mais frequência não cria duplicatas.
+    CRON_INTERVAL_SECONDS = 3600
+    last_cron_run: float = 0.0
 
     while not _shutdown_event.is_set():
         try:
-            # ── Cron: re-extração automática — checa no banco ──────────────
-            if await _deve_rodar_cron():
+            # ── Cron: re-extração automática (throttled em memória) ────────
+            loop_now = asyncio.get_event_loop().time()
+            if loop_now - last_cron_run >= CRON_INTERVAL_SECONDS:
                 await auto_reextract(db)
+                last_cron_run = loop_now
 
             # ── Polling: processa tarefas pendentes ──────────────────────
             tasks = await db.fetch_pending_tasks(limit=settings.MAX_CONCURRENT_TASKS)
