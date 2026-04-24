@@ -98,6 +98,9 @@ async def _parse_and_analyze(db: SupabaseClient, task_id: str, pdfs: list, task:
 
             logger.info(f"[Parse] ✓ UC {uc} {mes_ref} salvo (id={fatura_id})")
 
+            # Cadastra/atualiza cliente automaticamente a partir da fatura
+            await db.upsert_cliente_from_fatura(dados_fatura)
+
             # Análise
             def _analisar():
                 return analisar_fatura(dados_fatura)

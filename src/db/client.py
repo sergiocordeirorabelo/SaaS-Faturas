@@ -274,3 +274,77 @@ class SupabaseClient:
             )
         except Exception as exc:
             logger.error(f"[Analise] Erro ao salvar faturas_analise: {exc}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Clientes (cadastro automático a partir da fatura)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def upsert_cliente_from_fatura(self, dados: dict) -> Optional[str]:
+        """
+        Cria ou atualiza um cliente a partir dos dados parseados da fatura.
+        Busca por UC no array 'ucs'; se não achar e houver CNPJ, tenta por CNPJ.
+        Retorna o cliente_id ou None.
+        """
+        loop = asyncio.get_event_loop()
+
+        uc = (dados.get("uc") or "").strip()
+        nome = (dados.get("cliente_nome") or "").strip()
+        cnpj = (dados.get("cnpj") or "").strip()
+
+        if not uc or not nome:
+            return None
+
+        def _to_float(v):
+            try:
+                return float(v) if v is not None else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+
+        payload = {
+            "nome": nome,
+            "subgrupo": dados.get("subgrupo", "") or "",
+            "modalidade": dados.get("modalidade", "") or "",
+            "demanda_kw": _to_float(dados.get("demanda_contratada_fora_ponta_kw")),
+            "custo_medio": _to_float(dados.get("total_a_pagar")),
+        }
+
+        def _upsert():
+            try:
+                existing = (
+                    self._client.table("clientes")
+                    .select("id,ucs")
+                    .contains("ucs", [uc])
+                    .limit(1)
+                    .execute()
+                    .data
+                )
+                if not existing and cnpj:
+                    existing = (
+                        self._client.table("clientes")
+                        .select("id,ucs")
+                        .eq("cnpj", cnpj)
+                        .limit(1)
+                        .execute()
+                        .data
+                    )
+
+                if existing:
+                    cl = existing[0]
+                    ucs = cl.get("ucs") or []
+                    if uc not in ucs:
+                        ucs.append(uc)
+                    payload["ucs"] = ucs
+                    self._client.table("clientes").update(payload).eq("id", cl["id"]).execute()
+                    return cl["id"]
+
+                insert_payload = {**payload, "cnpj": cnpj, "ucs": [uc], "status": "prospecto"}
+                r = self._client.table("clientes").insert(insert_payload).execute()
+                return r.data[0]["id"] if r.data else None
+            except Exception as exc:
+                logger.error(f"[Cliente] Erro ao upsertar UC {uc}: {exc}")
+                return None
+
+        cliente_id = await loop.run_in_executor(None, _upsert)
+        if cliente_id:
+            logger.info(f"[Cliente] ✓ {nome[:40]} (UC {uc}) cliente_id={cliente_id}")
+        return cliente_id
