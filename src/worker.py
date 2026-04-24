@@ -294,6 +294,74 @@ async def auto_reextract(db: SupabaseClient) -> None:
         logger.error(f"Cron: erro na verificação: {exc}", exc_info=True)
 
 
+async def cleanup_stale_tasks(db: SupabaseClient) -> None:
+    """
+    One-shot na subida do worker: cancela tarefas órfãs/duplicadas geradas
+    pelo loop do cron. Roda só uma vez por deploy — seguro e idempotente.
+
+    - 'em_progresso' sempre foi deixado pra trás num restart (nenhum worker
+      retoma extração). Marca como erro_extracao.
+    - 'pendente' de Re-extração automática: mantém só a mais recente por CPF,
+      cancela o resto (eram duplicatas do loop).
+    """
+    loop = asyncio.get_event_loop()
+
+    def _cleanup():
+        # 1. Tarefas travadas em em_progresso (qualquer origem)
+        stuck = (
+            db._client.table("extraction_requests")
+            .select("id")
+            .eq("status", "em_progresso")
+            .execute()
+        )
+        stuck_ids = [r["id"] for r in (stuck.data or [])]
+        if stuck_ids:
+            db._client.table("extraction_requests").update({
+                "status": "erro_extracao",
+                "status_detail": "Cancelada — worker reiniciou antes de concluir.",
+            }).in_("id", stuck_ids).execute()
+
+        # 2. Duplicatas de auto-reextração em pendente — mantém só a mais recente por CPF
+        pend = (
+            db._client.table("extraction_requests")
+            .select("id,credentials,created_at")
+            .eq("status", "pendente")
+            .like("status_detail", "Re-extração automática%")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        seen: set[str] = set()
+        dup_ids: list[str] = []
+        for row in (pend.data or []):
+            cpf = (row.get("credentials") or {}).get("cpf_cnpj", "")
+            if not cpf:
+                continue
+            if cpf in seen:
+                dup_ids.append(row["id"])
+            else:
+                seen.add(cpf)
+
+        if dup_ids:
+            db._client.table("extraction_requests").update({
+                "status": "erro_extracao",
+                "status_detail": "Cancelada — duplicata do loop de rate limit.",
+            }).in_("id", dup_ids).execute()
+
+        return len(stuck_ids), len(dup_ids)
+
+    try:
+        stuck_n, dup_n = await loop.run_in_executor(None, _cleanup)
+        if stuck_n or dup_n:
+            logger.info(
+                f"Cleanup: {stuck_n} travada(s) em em_progresso + {dup_n} "
+                f"duplicata(s) de re-extração canceladas."
+            )
+        else:
+            logger.info("Cleanup: nada a limpar.")
+    except Exception as exc:
+        logger.warning(f"Cleanup: erro (continuando): {exc}")
+
+
 async def run_worker() -> None:
     """Loop principal: polling de tarefas + cron diário."""
     db = SupabaseClient()
@@ -301,6 +369,9 @@ async def run_worker() -> None:
     # ── Inicia servidor HTTP na porta do Railway ──────────────────────────────
     port = int(os.environ.get("PORT", 8080))
     await start_api_server(port=port)
+
+    # ── Limpeza de tarefas órfãs/duplicadas deixadas por deploys anteriores ──
+    await cleanup_stale_tasks(db)
 
     logger.info(
         f"Worker HTTP iniciado | Polling: {settings.POLL_INTERVAL_SECONDS}s | "
