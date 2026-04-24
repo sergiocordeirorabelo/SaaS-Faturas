@@ -264,6 +264,20 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-
   .sidebar [style*="margin:10px 10px"]{margin:6px 8px 3px!important;padding:9px 10px!important}
   .sidebar [style*="margin:0 10px"]{margin:0 8px 3px!important;padding:7px 10px!important}
 }
+/* ── Toast ────────────────────────────────────────────────────────────── */
+#toast-container{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.toast{pointer-events:auto;min-width:260px;max-width:380px;padding:12px 14px 12px 16px;border-radius:10px;background:var(--bg2);border-left:4px solid var(--blue);box-shadow:0 10px 25px rgba(15,23,42,.12),0 2px 6px rgba(15,23,42,.06);display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--text);animation:toast-in .22s ease-out}
+.toast.out{animation:toast-out .2s ease-in forwards}
+.toast .ico{font-size:16px;line-height:1.2;flex-shrink:0}
+.toast .msg{flex:1;line-height:1.45}
+.toast .close{background:none;border:none;color:var(--hint);cursor:pointer;font-size:16px;padding:0;line-height:1;margin-left:4px}
+.toast.success{border-left-color:var(--green)}
+.toast.error{border-left-color:var(--red)}
+.toast.warn{border-left-color:var(--amber)}
+.toast.info{border-left-color:var(--blue)}
+@keyframes toast-in{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes toast-out{to{transform:translateX(100%);opacity:0}}
+@media (max-width:640px){#toast-container{left:12px;right:12px;top:12px}.toast{min-width:0;max-width:none}}
 </style>
 </head>
 <body>
@@ -482,8 +496,9 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-
     </div>
     <!-- ABAS -->
     <div style="display:flex;border-bottom:2px solid var(--border);background:var(--bg3)">
-      <button id="tab-cred" onclick="trocarAbaNC('cred')" style="flex:1;padding:12px;font-size:13px;font-weight:600;border:none;background:transparent;cursor:pointer;border-bottom:3px solid var(--blue);color:var(--blue)">🔑 Via Credenciais</button>
-      <button id="tab-pdf" onclick="trocarAbaNC('pdf')" style="flex:1;padding:12px;font-size:13px;font-weight:600;border:none;background:transparent;cursor:pointer;border-bottom:3px solid transparent;color:var(--muted)">📄 Via Fatura PDF</button>
+      <button id="tab-cred" onclick="trocarAbaNC('cred')" style="flex:1;padding:12px;font-size:13px;font-weight:600;border:none;background:transparent;cursor:pointer;border-bottom:3px solid var(--blue);color:var(--blue)">🔑 Credenciais</button>
+      <button id="tab-pdf" onclick="trocarAbaNC('pdf')" style="flex:1;padding:12px;font-size:13px;font-weight:600;border:none;background:transparent;cursor:pointer;border-bottom:3px solid transparent;color:var(--muted)">📄 Via Fatura</button>
+      <button id="tab-manual" onclick="trocarAbaNC('manual')" style="flex:1;padding:12px;font-size:13px;font-weight:600;border:none;background:transparent;cursor:pointer;border-bottom:3px solid transparent;color:var(--muted)">✍️ Manual</button>
     </div>
     <!-- ABA 1: CREDENCIAIS (existente) -->
     <div id="form-novo-cliente" class="modal-body">
@@ -563,6 +578,80 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-
       </div>
       <div id="pdf-error" style="display:none;background:var(--red-bg);border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:12px;color:var(--red);font-size:12px"></div>
       <button id="pdf-btn" class="btn primary" style="width:100%;padding:13px;font-size:14px" onclick="enviarFaturaPdf()" disabled>📊 Analisar Fatura e Cadastrar Cliente</button>
+    </div>
+    <!-- ABA 3: MANUAL (cadastro direto, sem fatura) -->
+    <div id="form-manual-cliente" class="modal-body" style="display:none">
+      <div style="background:var(--blue-bg);border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#1e3a8a;line-height:1.5">
+        <strong>Cadastro rápido sem fatura.</strong> Útil para registrar prospects ou clientes cujos dados você ainda não tem. Depois é só anexar faturas pela tela do cliente.
+      </div>
+      <div class="form-group">
+        <label class="form-label">Razão social *</label>
+        <input id="mn-nome" class="form-input" type="text" placeholder="Nome ou razão social da empresa" maxlength="120">
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">CNPJ / CPF</label>
+          <input id="mn-cnpj" class="form-input" type="text" placeholder="00.000.000/0001-00" oninput="this.value=formatDoc(this.value)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Telefone</label>
+          <input id="mn-telefone" class="form-input" type="tel" placeholder="(92) 99999-9999" oninput="this.value=formatTel(this.value)">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">E-mail de contato</label>
+        <input id="mn-email" class="form-input" type="email" placeholder="contato@empresa.com">
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">UC (opcional)</label>
+          <input id="mn-uc" class="form-input" type="text" placeholder="0000000-0">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Status inicial</label>
+          <select id="mn-status" class="form-input">
+            <option value="prospecto" selected>Prospecto</option>
+            <option value="analisando">Analisando</option>
+            <option value="proposta">Proposta enviada</option>
+            <option value="negociando">Negociando</option>
+            <option value="ativo">Ativo</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Subgrupo</label>
+          <select id="mn-subgrupo" class="form-input">
+            <option value="">—</option>
+            <option value="A1">A1 (≥230 kV)</option>
+            <option value="A2">A2 (88 a 138 kV)</option>
+            <option value="A3">A3 (69 kV)</option>
+            <option value="A3a">A3a (30 a 44 kV)</option>
+            <option value="A4">A4 (2,3 a 25 kV)</option>
+            <option value="AS">AS (subterrâneo)</option>
+            <option value="B1">B1 (residencial)</option>
+            <option value="B2">B2 (rural)</option>
+            <option value="B3">B3 (demais)</option>
+            <option value="B4">B4 (iluminação)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Modalidade</label>
+          <select id="mn-modalidade" class="form-input">
+            <option value="">—</option>
+            <option value="Convencional">Convencional</option>
+            <option value="Verde">Horosazonal Verde</option>
+            <option value="Azul">Horosazonal Azul</option>
+            <option value="Branca">Branca</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Observações</label>
+        <textarea id="mn-obs" class="form-input" rows="2" placeholder="Notas internas sobre o cliente" style="resize:vertical;min-height:56px;font-family:inherit"></textarea>
+      </div>
+      <div id="mn-error" style="display:none;background:var(--red-bg);border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:14px;color:var(--red);font-size:12px"></div>
+      <button id="mn-btn" class="btn primary" style="width:100%;padding:13px;font-size:14px" onclick="cadastrarClienteManual()">✓ Cadastrar Cliente</button>
     </div>
     <!-- STATUS (compartilhado) -->
     <div id="status-extracao" style="display:none;padding:24px">
@@ -666,6 +755,28 @@ const RW = 'https://saas-faturas-production.up.railway.app';
 let D = { clientes:[], faturas:[], analises:[], alertas:[], propostas:[], contratos:[], relatorios:[] };
 let _poll = null;
 let _analiseCache = {};
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+function toast(msg, tipo, duration){
+  tipo = tipo || 'info';
+  duration = (duration === undefined) ? 3800 : duration;
+  var c = document.getElementById('toast-container');
+  if(!c){ c = document.createElement('div'); c.id = 'toast-container'; document.body.appendChild(c); }
+  var ico = {success:'✓', error:'✕', warn:'⚠', info:'ℹ'}[tipo] || 'ℹ';
+  var el = document.createElement('div');
+  el.className = 'toast ' + tipo;
+  el.innerHTML = '<span class="ico">'+ico+'</span><div class="msg"></div><button class="close" aria-label="Fechar">✕</button>';
+  el.querySelector('.msg').textContent = msg;
+  var remove = function(){ el.classList.add('out'); setTimeout(function(){ el.remove(); }, 220); };
+  el.querySelector('.close').onclick = remove;
+  c.appendChild(el);
+  if(duration > 0) setTimeout(remove, duration);
+  return el;
+}
+function isEmail(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v||'').trim()); }
+function isCNPJ(v){ return (v||'').replace(/\D/g,'').length === 14; }
+function isCPF(v){ return (v||'').replace(/\D/g,'').length === 11; }
+function isCPFouCNPJ(v){ var n=(v||'').replace(/\D/g,'').length; return n===11 || n===14; }
 
 // ── API ──────────────────────────────────────────────────────────────────────
 async function sbGet(ep){ const r=await fetch(SB+'/rest/v1/'+ep,{headers:{apikey:KEY,Authorization:'Bearer '+KEY}}); return r.json(); }
@@ -887,7 +998,7 @@ async function fecharContrato(clienteId){
     status:'ativo', contrato_inicio: fmt(hoje), contrato_fim: fmt(fim), valor_mensal: valorMensal
   });
   await carregarDados();
-  alert('🎉 Contrato fechado! Cliente '+c.nome.slice(0,30)+' agora é um cliente ativo.');
+  toast('Contrato fechado! '+c.nome.slice(0,30)+' agora é cliente ativo.', 'success');
   // Abre a tela de contratos
   navegar('contratos', document.getElementById('sb-contratos'));
 }
@@ -1537,7 +1648,7 @@ async function fecharContrato(clienteId){
     status:'ativo', contrato_inicio: fmt(hoje), contrato_fim: fmt(fim), valor_mensal: valorMensal
   });
   await carregarDados();
-  alert('🎉 Contrato fechado! Cliente '+c.nome.slice(0,30)+' agora é um cliente ativo.');
+  toast('Contrato fechado! '+c.nome.slice(0,30)+' agora é cliente ativo.', 'success');
   // Abre a tela de contratos
   navegar('contratos', document.getElementById('sb-contratos'));
 }
@@ -2156,7 +2267,7 @@ async function gerarProposta(clienteId){
   var c = D.clientes.find(function(x){return x.id===clienteId;});
   if(!c) return;
   var uc = (c.ucs||[])[0];
-  if(!uc) { alert('Nenhuma UC encontrada para este cliente.'); return; }
+  if(!uc) { toast('Nenhuma UC encontrada para este cliente.', 'warn'); return; }
   gerarPropostaParaCliente(clienteId);
 }
 
@@ -2339,35 +2450,45 @@ function gerarContratoPDF(clienteId){
 function abrirModalNovoCliente(){
   closeSidebar();
   document.getElementById('modalNovoCliente').style.display='block';
-  document.getElementById('form-novo-cliente').style.display='block';
-  document.getElementById('form-upload-pdf').style.display='none';
   document.getElementById('status-extracao').style.display='none';
   document.getElementById('nc-cpf').value='';
   document.getElementById('nc-senha').value='';
   document.getElementById('nc-email').value='';
   document.getElementById('nc-error').style.display='none';
   document.getElementById('nc-toggle').classList.add('on');
+  // Reset aba manual
+  ['mn-nome','mn-cnpj','mn-telefone','mn-email','mn-uc','mn-obs'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.value='';
+  });
+  var mnStatus=document.getElementById('mn-status'); if(mnStatus) mnStatus.value='prospecto';
+  var mnSub=document.getElementById('mn-subgrupo'); if(mnSub) mnSub.value='';
+  var mnMod=document.getElementById('mn-modalidade'); if(mnMod) mnMod.value='';
+  var mnErr=document.getElementById('mn-error'); if(mnErr) mnErr.style.display='none';
   trocarAbaNC('cred');
   limparPdf();
   document.body.style.overflow='hidden';
 }
 
 function trocarAbaNC(aba){
-  var tabCred=document.getElementById('tab-cred');
-  var tabPdf=document.getElementById('tab-pdf');
-  var formCred=document.getElementById('form-novo-cliente');
-  var formPdf=document.getElementById('form-upload-pdf');
-  if(aba==='pdf'){
-    tabCred.style.borderBottomColor='transparent';tabCred.style.color='var(--muted)';
-    tabPdf.style.borderBottomColor='var(--blue)';tabPdf.style.color='var(--blue)';
-    formCred.style.display='none';formPdf.style.display='block';
-    document.getElementById('nc-modal-sub').textContent='Envie a fatura PDF — análise automática';
-  } else {
-    tabCred.style.borderBottomColor='var(--blue)';tabCred.style.color='var(--blue)';
-    tabPdf.style.borderBottomColor='transparent';tabPdf.style.color='var(--muted)';
-    formCred.style.display='block';formPdf.style.display='none';
-    document.getElementById('nc-modal-sub').textContent='Informe as credenciais — o resto é automático';
-  }
+  var abas = {
+    cred:   { tab:'tab-cred',   form:'form-novo-cliente',   sub:'Informe as credenciais — o resto é automático' },
+    pdf:    { tab:'tab-pdf',    form:'form-upload-pdf',     sub:'Envie a fatura PDF — análise automática' },
+    manual: { tab:'tab-manual', form:'form-manual-cliente', sub:'Cadastre um cliente sem precisar de fatura' }
+  };
+  Object.keys(abas).forEach(function(k){
+    var t = document.getElementById(abas[k].tab);
+    var f = document.getElementById(abas[k].form);
+    if(!t || !f) return;
+    if(k === aba){
+      t.style.borderBottomColor = 'var(--blue)'; t.style.color = 'var(--blue)';
+      f.style.display = 'block';
+    } else {
+      t.style.borderBottomColor = 'transparent'; t.style.color = 'var(--muted)';
+      f.style.display = 'none';
+    }
+  });
+  var sub = document.getElementById('nc-modal-sub');
+  if(sub && abas[aba]) sub.textContent = abas[aba].sub;
 }
 
 var _pdfFile=null;
@@ -2380,7 +2501,7 @@ function handlePdfDrop(e){
   if(files.length) setPdfFiles(files);
 }
 function setPdfFiles(files){
-  if(files.length>12){alert('Máximo de 12 faturas por vez.');files=files.slice(0,12);}
+  if(files.length>12){toast('Máximo de 12 faturas por vez.', 'warn');files=files.slice(0,12);}
   _pdfFiles=files;
   _pdfFile=files[0]; // compatibilidade
   // Renderiza lista
@@ -2411,14 +2532,14 @@ function limparPdf(){
 
 async function salvarNomeDiag(clienteId,faturaId){
   var nome=document.getElementById('diag-nome').value.trim();
-  if(!nome){alert('Digite o nome do cliente');return;}
+  if(!nome){toast('Digite o nome do cliente.', 'warn');return;}
   try{
     if(clienteId) await sbPatch('clientes?id=eq.'+clienteId,{nome:nome});
     if(faturaId) await sbPatch('faturas_parsed?id=eq.'+faturaId,{cliente_nome:nome});
     var ok=document.getElementById('diag-nome-ok');
     if(ok){ok.style.display='inline';setTimeout(function(){ok.style.display='none';},3000);}
     await carregarDados();
-  }catch(e){alert('Erro ao salvar: '+e.message);}
+  }catch(e){toast('Erro ao salvar: '+e.message, 'error');}
 }
 
 // Funções de edição simplificadas abaixo
@@ -2432,7 +2553,7 @@ async function editarNomeCliente(clienteId){
   if(cl.ucs){for(var i=0;i<cl.ucs.length;i++){await sbPatch('faturas_parsed?uc=eq.'+cl.ucs[i],{cliente_nome:novo});}}
   await carregarDados();
   document.getElementById('mc-titulo').textContent=novo.slice(0,50);
-  alert('✅ Nome atualizado!');
+  toast('Nome atualizado.', 'success');
 }
 
 async function editarDadosCliente(clienteId){
@@ -2461,17 +2582,17 @@ async function editarDadosCliente(clienteId){
     if(cl.ucs&&nome&&nome!==cl.nome){
       for(var i=0;i<cl.ucs.length;i++) await sbPatch('faturas_parsed?uc=eq.'+cl.ucs[i],{cliente_nome:nome});
     }
-    alert('✅ Dados atualizados!');
+    toast('Dados atualizados.', 'success');
     await carregarDados();
     abrirCliente(clienteId);
-  }catch(e){alert('Erro: '+e.message);}
+  }catch(e){toast('Erro: '+e.message, 'error');}
 }
 
 async function editarAnalise(uc){
   var txt=document.getElementById('mc-analise-txt');
   if(!txt)return;
   await sbPatch('faturas_analise?uc=eq.'+uc,{analise_claude:txt.value});
-  alert('✅ Análise salva!');
+  toast('Análise salva.', 'success');
   await carregarDados();
 }
 
@@ -2483,7 +2604,7 @@ async function salvarAnaliseTexto(uc){
     var ok=document.getElementById('mc-analise-ok');
     if(ok){ok.style.display='inline';setTimeout(function(){ok.style.display='none';},3000);}
     await carregarDados();
-  }catch(e){alert('Erro: '+e.message);}
+  }catch(e){toast('Erro: '+e.message, 'error');}
 }
 
 function toggleEditDados(clienteId){
@@ -2510,7 +2631,8 @@ async function salvarDadosCliente(clienteId){
     await carregarDados();
     // Atualiza view
     toggleEditDados(clienteId);
-  }catch(e){alert('Erro: '+e.message);}
+    toast('Dados salvos.', 'success');
+  }catch(e){toast('Erro: '+e.message, 'error');}
 }
 
 async function enviarFaturaPdf(){
@@ -3167,7 +3289,7 @@ async function downloadRelatorio(faturaId){
     path = d&&d[0]&&d[0].source_pdf_path;
   }
 
-  if(!path){ alert('PDF não disponível para esta fatura.'); return; }
+  if(!path){ toast('PDF não disponível para esta fatura.', 'warn'); return; }
   var url = SB+'/storage/v1/object/public/Faturas/'+path;
   window.open(url,'_blank');
 }
@@ -3181,11 +3303,11 @@ async function analisarFatura(faturaId, btnEl){
       if(btnEl){ btnEl.textContent='✅ '+d.score+'/100'; btnEl.className='btn green'; btnEl.disabled=true; }
       await carregarDados();
     } else {
-      alert('Erro: '+(d.error||'falha na análise'));
+      toast('Erro: '+(d.error||'falha na análise'), 'error');
       if(btnEl){ btnEl.disabled=false; btnEl.textContent='⚡ Analisar'; }
     }
   }catch(e){
-    alert('Erro de conexão: '+e.message);
+    toast('Erro de conexão: '+e.message, 'error');
     if(btnEl){ btnEl.disabled=false; btnEl.textContent='⚡ Analisar'; }
   }
 }
@@ -3197,7 +3319,7 @@ function irParaAnaliseUC(uc){
     abrirAnaliseCliente(cl.id);
   } else {
     navegar('analises', document.getElementById('sb-analises'));
-    alert('UC '+uc+' não está vinculada a nenhum cliente. Cadastre o cliente primeiro.');
+    toast('UC '+uc+' não está vinculada a nenhum cliente. Cadastre o cliente primeiro.', 'warn');
   }
 }
 
@@ -3207,13 +3329,13 @@ async function analisarPendentes(btnEl){
     var r = await fetch(RW+'/analisar/pendentes');
     var d = await r.json();
     if(d.ok){
-      alert('✅ '+d.analisadas+' fatura(s) analisada(s) de '+d.total_pendentes+' pendente(s)');
+      toast(d.analisadas+' fatura(s) analisada(s) de '+d.total_pendentes+' pendente(s).', 'success');
       await carregarDados();
     } else {
-      alert('Erro: '+(d.error||'falha'));
+      toast('Erro: '+(d.error||'falha'), 'error');
     }
   }catch(e){
-    alert('Erro de conexão: '+e.message);
+    toast('Erro de conexão: '+e.message, 'error');
   }
   if(btnEl){ btnEl.disabled=false; btnEl.textContent='⚡ Analisar Pendentes'; }
 }
@@ -3368,7 +3490,7 @@ function renderRelatorios(){
 
 async function extrairMesAtual(clienteId){
   var cl = D.clientes.find(function(x){return x.id===clienteId;});
-  if(!cl||!cl.portal_cpf_cnpj) { alert('Credenciais não disponíveis. Recadastre o cliente.'); return; }
+  if(!cl||!cl.portal_cpf_cnpj) { toast('Credenciais não disponíveis. Recadastre o cliente.', 'warn'); return; }
   if(!confirm('Iniciar extração da fatura do mês atual para '+cl.nome.slice(0,40)+'?')) return;
   var meses = parseInt(document.getElementById('nc-meses') ? document.getElementById('nc-meses').value : 1)||1;
   await sbPost('extraction_requests',{
@@ -3376,13 +3498,13 @@ async function extrairMesAtual(clienteId){
     credentials:{cpf_cnpj:cl.portal_cpf_cnpj, senha:'', meses:1, monitorar:true},
     status:'pendente'
   });
-  alert('✅ Extração solicitada! O worker irá baixar a fatura em breve.');
+  toast('Extração solicitada. O worker irá baixar a fatura em breve.', 'success');
   await carregarDados();
 }
 
 async function gerarRelatoriosMensais(){
   var ativos = D.clientes.filter(function(c){return c.status==='ativo';});
-  if(!ativos.length){ alert('Nenhum cliente ativo ainda. Feche contratos primeiro.'); return; }
+  if(!ativos.length){ toast('Nenhum cliente ativo ainda. Feche contratos primeiro.', 'warn'); return; }
   var mes = new Date().toLocaleDateString('pt-BR',{month:'2-digit',year:'numeric'});
   var criados = 0;
   for(var i=0;i<ativos.length;i++){
@@ -3394,8 +3516,8 @@ async function gerarRelatoriosMensais(){
     }
   }
   await carregarDados();
-  if(criados>0) alert('✅ Acompanhamento de '+mes+' iniciado para '+criados+' cliente(s)!');
-  else alert('Acompanhamento de '+mes+' já existe para todos os clientes ativos.');
+  if(criados>0) toast('Acompanhamento de '+mes+' iniciado para '+criados+' cliente(s).', 'success');
+  else toast('Acompanhamento de '+mes+' já existe para todos os clientes ativos.', 'info');
 }
 
 // ── PROPOSTAS ────────────────────────────────────────────────────────────────
@@ -3435,6 +3557,72 @@ function renderContratos(){
 // ── UTILITÁRIOS ──────────────────────────────────────────────────────────────
 function fecharModal(id){ document.getElementById(id).style.display='none'; document.body.style.overflow=''; }
 function formatDoc(v){ var n=v.replace(/\D/g,'').slice(0,14); if(n.length<=3)return n; if(n.length<=6)return n.slice(0,3)+'.'+n.slice(3); if(n.length<=9)return n.slice(0,3)+'.'+n.slice(3,6)+'.'+n.slice(6); if(n.length<=11)return n.slice(0,3)+'.'+n.slice(3,6)+'.'+n.slice(6,9)+'-'+n.slice(9); return n.slice(0,2)+'.'+n.slice(2,5)+'.'+n.slice(5,8)+'/'+n.slice(8,12)+'-'+n.slice(12); }
+function formatTel(v){ var n=v.replace(/\D/g,'').slice(0,11); if(!n) return ''; if(n.length<=2) return '('+n; if(n.length<=6) return '('+n.slice(0,2)+') '+n.slice(2); if(n.length<=10) return '('+n.slice(0,2)+') '+n.slice(2,6)+'-'+n.slice(6); return '('+n.slice(0,2)+') '+n.slice(2,7)+'-'+n.slice(7); }
+
+async function cadastrarClienteManual(){
+  var nome = (document.getElementById('mn-nome').value||'').trim();
+  var cnpj = (document.getElementById('mn-cnpj').value||'').replace(/\D/g,'');
+  var telefone = (document.getElementById('mn-telefone').value||'').trim();
+  var email = (document.getElementById('mn-email').value||'').trim();
+  var uc = (document.getElementById('mn-uc').value||'').trim();
+  var status = document.getElementById('mn-status').value || 'prospecto';
+  var subgrupo = document.getElementById('mn-subgrupo').value || '';
+  var modalidade = document.getElementById('mn-modalidade').value || '';
+  var obs = (document.getElementById('mn-obs').value||'').trim();
+  var errEl = document.getElementById('mn-error');
+  var btn = document.getElementById('mn-btn');
+
+  var erros = [];
+  if(!nome) erros.push('Informe a razão social.');
+  if(cnpj && !isCPFouCNPJ(cnpj)) erros.push('CNPJ ou CPF inválido.');
+  if(email && !isEmail(email)) erros.push('E-mail inválido.');
+  if(erros.length){
+    errEl.textContent = erros.join(' ');
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+
+  try{
+    // Dedup por CNPJ (se informado)
+    if(cnpj){
+      var existe = await sbGet('clientes?cnpj=eq.'+cnpj+'&select=id,nome');
+      if(Array.isArray(existe) && existe.length){
+        toast('Já existe um cliente com esse CNPJ: '+(existe[0].nome||''), 'warn');
+        return;
+      }
+    }
+
+    btn.disabled = true; btn.textContent = 'Cadastrando...';
+
+    var payload = {
+      nome: nome,
+      status: status,
+      ucs: uc ? [uc] : [],
+    };
+    if(cnpj) payload.cnpj = cnpj;
+    if(telefone) payload.telefone = telefone;
+    if(email) payload.email_contato = email;
+    if(subgrupo) payload.subgrupo = subgrupo;
+    if(modalidade) payload.modalidade = modalidade;
+    if(obs) payload.obs = obs;
+
+    var r = await sbPost('clientes', payload);
+    if(!r || (r.message && !r[0])){
+      throw new Error(r.message || 'Falha ao cadastrar.');
+    }
+    toast('Cliente cadastrado com sucesso.', 'success');
+    fecharModal('modalNovoCliente');
+    navegar('pipeline', document.getElementById('sb-pipeline'));
+    await carregarDados();
+  } catch(e){
+    errEl.textContent = 'Erro ao cadastrar: ' + (e.message || e);
+    errEl.style.display = 'block';
+    toast('Erro ao cadastrar cliente.', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✓ Cadastrar Cliente';
+  }
+}
 function formatCNPJ(c){ return c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5')||c; }
 function getStatusClass(s){ var m={prospecto:'info',analisando:'alerta',proposta:'info',ativo:'ok',inativo:'gray'}; return m[s]||'gray'; }
 function getStatusLabel(s){ var m={prospecto:'🔍 Prospecto',analisando:'📊 Analisando',proposta:'📧 Proposta Enviada',ativo:'✅ Ativo',inativo:'⏸️ Inativo'}; return m[s]||s; }
@@ -3442,7 +3630,7 @@ function verRelatorio(clienteId){ navegar('relatorios',document.getElementById('
 
 // ── ESTUDO TÉCNICO (preview modal) ─────────────────────────────────────────
 async function abrirEstudoTecnico(uc,limit){
-  if(!uc){ alert('Selecione um cliente primeiro.'); return; }
+  if(!uc){ toast('Selecione um cliente primeiro.', 'warn'); return; }
   limit = limit || _analiseFatLimit || 12;
   var modal = document.getElementById('modalEstudo');
   var loading = document.getElementById('me-loading');
@@ -3502,8 +3690,8 @@ async function abrirEstudoTecnico(uc,limit){
 
 // ── DIAGNÓSTICO (upload) ─────────────────────────────────────────────────
 async function handleDiagUpload(file){
-  if(!file||!file.name.endsWith('.pdf')){alert('Selecione um arquivo PDF.');return;}
-  if(file.size>20*1024*1024){alert('Arquivo muito grande (máx 20MB).');return;}
+  if(!file||!file.name.endsWith('.pdf')){toast('Selecione um arquivo PDF.', 'warn');return;}
+  if(file.size>20*1024*1024){toast('Arquivo muito grande (máx 20MB).', 'warn');return;}
 
   document.getElementById('diag-upload-area').style.display='none';
   document.getElementById('diag-resultado').style.display='none';
@@ -3523,7 +3711,7 @@ async function handleDiagUpload(file){
   }catch(e){
     ld.style.display='none';
     document.getElementById('diag-upload-area').style.display='block';
-    alert('Erro: '+e.message);
+    toast('Erro: '+e.message, 'error');
   }
 }
 
