@@ -32,27 +32,26 @@ def _handle_signal(sig, frame):
     _shutdown_event.set()
 
 
-async def _parse_and_analyze(db: SupabaseClient, task_id: str, pdfs: list, task: dict) -> None:
-    """Faz parse e análise IA de cada PDF extraído, salvando em faturas_parsed e faturas_analise."""
+async def _baixar_e_salvar(db: SupabaseClient, task_id: str, pdfs: list) -> None:
+    """
+    Baixa PDFs do Storage, faz parse rápido (regex), salva em faturas_parsed
+    e cadastra/atualiza cliente. Não roda análise — operador dispara sob
+    demanda pelo painel via /analisar/fatura/{id} ou /analisar/pendentes.
+    """
     import asyncio
     from pathlib import Path
     from src.parsers.parser_fatura import parse_pdf
-    from src.parsers.analyzer_fatura import analisar_fatura
-    from src.ai.ai_provider import gerar_analise_textual
 
     loop = asyncio.get_event_loop()
-    credentials = task.get("credentials", {})
     cliente_nome = None
 
     for pdf_info in pdfs:
         try:
-            storage_url = pdf_info.get("storage_url", "")
             uc = str(pdf_info.get("uc", ""))
             mes_ref = pdf_info.get("mes_referencia", "")
             tipo = pdf_info.get("tipo", "")
 
             # Storage path vem direto do extractor (detalhada e simples têm caminhos diferentes).
-            # Fallback pra reconstrução antiga caso o extractor não tenha mandado.
             storage_path = pdf_info.get("storage_path") or (
                 f"faturas/{uc}/{mes_ref.replace('/', '-')}"
                 + ("_detalhada.pdf" if tipo == "detalhada" else ".pdf")
@@ -60,8 +59,7 @@ async def _parse_and_analyze(db: SupabaseClient, task_id: str, pdfs: list, task:
             tmp_path = Path(f"/tmp/parse_{task_id}_{uc}_{mes_ref.replace('/', '-')}.pdf")
 
             def _download():
-                data = db._client.storage.from_(settings.SUPABASE_BUCKET).download(storage_path)
-                return data
+                return db._client.storage.from_(settings.SUPABASE_BUCKET).download(storage_path)
 
             try:
                 pdf_bytes = await loop.run_in_executor(None, _download)
@@ -70,28 +68,29 @@ async def _parse_and_analyze(db: SupabaseClient, task_id: str, pdfs: list, task:
                 logger.warning(f"[Parse] Erro ao baixar do storage {storage_path}: {dl_exc}")
                 continue
 
-            # Parse — tenta IA (Claude Vision) primeiro, fallback regex
+            # Parser regex (rápido). Vision IA fica pra análise sob demanda.
+            def _parse():
+                return parse_pdf(str(tmp_path))
             try:
-                from src.parsers.parser_fatura_ia import parse_pdf_ia
-                dados_fatura = await parse_pdf_ia(str(tmp_path))
-                logger.info(f"[Parse] Parser usado: {dados_fatura.get('source_parser','ia')}")
-            except Exception as parse_err:
-                logger.warning(f"[Parse] Parser IA falhou ({parse_err}), usando regex")
-                def _parse():
-                    return parse_pdf(str(tmp_path))
                 dados_fatura = await loop.run_in_executor(None, _parse)
+            except Exception as parse_err:
+                logger.warning(f"[Parse] Regex falhou em UC {uc} {mes_ref}: {parse_err}")
+                dados_fatura = {}
             tmp_path.unlink(missing_ok=True)
 
+            # Garante campos mínimos pra UI mostrar a fatura
             if not dados_fatura.get("uc"):
                 dados_fatura["uc"] = uc
             if not dados_fatura.get("mes_referencia"):
                 dados_fatura["mes_referencia"] = mes_ref
-
+            if not dados_fatura.get("total_a_pagar") and pdf_info.get("valor"):
+                dados_fatura["total_a_pagar"] = pdf_info["valor"]
             dados_fatura["extraction_id"] = task_id
+            dados_fatura["source_pdf_path"] = storage_path
+
             if cliente_nome is None and dados_fatura.get("cliente_nome"):
                 cliente_nome = dados_fatura["cliente_nome"]
 
-            # Salva fatura parseada
             fatura_id = await db.save_fatura_parsed(dados_fatura)
             if not fatura_id:
                 logger.warning(f"[Parse] Falha ao salvar fatura UC {uc} {mes_ref}")
@@ -102,52 +101,11 @@ async def _parse_and_analyze(db: SupabaseClient, task_id: str, pdfs: list, task:
             # Cadastra/atualiza cliente automaticamente a partir da fatura
             await db.upsert_cliente_from_fatura(dados_fatura)
 
-            # Análise
-            def _analisar():
-                return analisar_fatura(dados_fatura)
-
-            analise_dict = await loop.run_in_executor(None, _analisar)
-            analise_dict["fatura_id"] = fatura_id
-            analise_dict["uc"] = uc
-
-            # Gera texto IA
-            try:
-                texto_ia = await gerar_analise_textual(dados_fatura, analise_dict)
-                if texto_ia:
-                    analise_dict["analise_claude"] = texto_ia
-            except Exception as e:
-                logger.warning(f"[IA] Texto não gerado para UC {uc}: {e}")
-
-            await db.save_fatura_analise(fatura_id, analise_dict)
-            logger.info(f"[Análise] ✓ UC {uc} {mes_ref} analisado (score={analise_dict.get('score_eficiencia')})")
-
-            # Gerar alertas automaticamente
-            try:
-                alertas_list = analise_dict.get("alertas") or []
-                for alerta in alertas_list[:5]:
-                    if isinstance(alerta, dict) and alerta.get("titulo"):
-                        alert_payload = {
-                            "uc": uc,
-                            
-                            "tipo": alerta.get("tipo", "info"),
-                            "severidade": alerta.get("severidade", "medio"),
-                            "titulo": alerta.get("titulo", ""),
-                            "descricao": alerta.get("descricao", ""),
-                            "resolvido": False,
-                        }
-                        def _save_alert(p=alert_payload):
-                            try:
-                                db._client.table("alertas_de_fatura").upsert(
-                                    p, on_conflict="uc,titulo"
-                                ).execute()
-                            except:
-                                pass
-                        await loop.run_in_executor(None, _save_alert)
-            except Exception as ae:
-                logger.warning(f"[Alertas] Falha ao gerar alertas UC {uc}: {ae}")
-
         except Exception as exc:
-            logger.error(f"[Parse] Erro UC {pdf_info.get('uc')} {pdf_info.get('mes_referencia')}: {exc}", exc_info=True)
+            logger.error(
+                f"[Parse] Erro UC {pdf_info.get('uc')} {pdf_info.get('mes_referencia')}: {exc}",
+                exc_info=True,
+            )
 
     if cliente_nome:
         logger.info(f"[Parse] Cliente identificado: {cliente_nome}")
@@ -178,8 +136,8 @@ async def process_task(db: SupabaseClient, task: dict) -> None:
             )
             logger.info(f"[Task {task_id}] ✓ Concluído com {len(pdfs)} faturas.")
 
-            # ── Parse + Análise de cada PDF ───────────────────────────────
-            await _parse_and_analyze(db, task_id, pdfs, task)
+            # ── Salva faturas no banco (sem análise — operador roda sob demanda) ──
+            await _baixar_e_salvar(db, task_id, pdfs)
 
         else:
             await db.update_task_status(task_id, "erro_extracao", "Nenhuma fatura encontrada.")
