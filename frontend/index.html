@@ -447,7 +447,8 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-
         <option value="">Todas as UCs</option>
       </select>
       <span id="fat-count" style="font-size:12px;color:var(--muted);display:flex;align-items:center"></span>
-      <button class="btn amber" onclick="analisarPendentes(this)" style="margin-left:auto">⚡ Analisar Pendentes</button>
+      <button id="btn-limpar-dup" class="btn" onclick="limparDuplicatas()" style="margin-left:auto" title="Mantém a mais recente de cada UC × mês">🧹 Limpar duplicatas</button>
+      <button class="btn amber" onclick="analisarPendentes(this)">⚡ Analisar Pendentes</button>
     </div>
     <div id="faturas-lista"></div>
   </div>
@@ -798,6 +799,28 @@ async function sbPatch(ep,body){
     return r.ok;
   }catch(err){
     console.error('sbPatch falhou:',err);
+    return false;
+  }
+}
+async function sbDelete(ep){
+  // Proxy via Railway API (service_role) — Supabase allowlist bloqueia delete direto.
+  var parts = ep.split('?');
+  var table = parts[0];
+  var qs = parts[1]||'';
+  if(!qs){ console.error('sbDelete: filtro obrigatório'); return false; }
+  try{
+    var r = await fetch(RW+'/db/'+table+'?'+qs,{
+      method:'DELETE',
+      headers:{'Content-Type':'application/json'},
+      signal:AbortSignal.timeout(15000)
+    });
+    if(!r.ok){
+      var data = await r.json().catch(function(){return{};});
+      console.error('sbDelete erro:',data);
+    }
+    return r.ok;
+  }catch(err){
+    console.error('sbDelete falhou:',err);
     return false;
   }
 }
@@ -3259,23 +3282,77 @@ function renderFaturas(){
       var acaoHtml = temAnalise
         ? '<button class="btn" style="font-size:10px;padding:3px 8px" onclick="irParaAnaliseUC(\''+f.uc+'\')">🔍</button>'
         : '<button class="btn amber" style="font-size:10px;padding:3px 8px" onclick="analisarFatura(\''+f.id+'\',this)">⚡ Analisar</button>';
-      return '<div class="table-row" style="grid-template-columns:2fr 1fr 1fr 70px 140px">'
+      return '<div class="table-row" style="grid-template-columns:2fr 1fr 1fr 70px 180px">'
         +'<div class="td">'+f.uc+'<div class="td muted">'+f.mes_referencia+'</div></div>'
         +'<div class="td">'+(f.subgrupo||'')+' · '+(f.modalidade||'')+'</div>'
         +'<div class="td r">R$ '+(parseFloat(f.total_a_pagar)||0).toLocaleString('pt-BR',{minimumFractionDigits:2})+'</div>'
         +'<div class="td r">'+scoreHtml+'</div>'
         +'<div class="td r" style="display:flex;gap:4px;justify-content:flex-end">'+acaoHtml
-        +'<button class="btn" style="font-size:10px;padding:3px 8px" onclick="downloadRelatorio(\''+f.id+'\')">📄</button></div>'
+        +'<button class="btn" style="font-size:10px;padding:3px 8px" onclick="downloadRelatorio(\''+f.id+'\')" title="Ver PDF">📄</button>'
+        +'<button class="btn red" style="font-size:10px;padding:3px 8px" onclick="excluirFatura(\''+f.id+'\',\''+(f.uc||'')+'\',\''+(f.mes_referencia||'')+'\')" title="Excluir fatura">🗑</button></div>'
         +'</div>';
     }).join('');
     div.innerHTML='<div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
       +'<div style="font-size:13px;font-weight:600">'+cli.nome.slice(0,50)+'</div>'
       +'<span class="badge gray">'+cli.itens.length+' faturas</span></div>'
-      +'<div class="table-head" style="grid-template-columns:2fr 1fr 1fr 70px 140px"><div class="th">UC / Mês</div><div class="th">Tipo</div><div class="th r">Valor</div><div class="th r">Score</div><div class="th r">Ações</div></div>'
+      +'<div class="table-head" style="grid-template-columns:2fr 1fr 1fr 70px 180px"><div class="th">UC / Mês</div><div class="th">Tipo</div><div class="th r">Valor</div><div class="th r">Score</div><div class="th r">Ações</div></div>'
       +rows;
     cont.appendChild(div);
   });
   if(!cont.children.length) cont.innerHTML='<div class="empty"><div class="empty-icon">📄</div><div>Nenhuma fatura encontrada</div></div>';
+}
+
+async function excluirFatura(faturaId, uc, mesRef){
+  var label = (uc?('UC '+uc):'') + (mesRef?(' · '+mesRef):'');
+  if(!confirm('Excluir essa fatura?\n\n'+label+'\n\nA análise vinculada também será removida (cascade). Os PDFs no Storage permanecem.')) return;
+  var ok = await sbDelete('faturas_parsed?id=eq.'+faturaId);
+  if(ok){
+    toast('Fatura removida.', 'success');
+    await carregarDados();
+  } else {
+    toast('Falha ao excluir. Verifique conexão com o worker.', 'error');
+  }
+}
+
+async function limparDuplicatas(){
+  // Agrupa por (uc, mes_referencia) e separa as duplicatas mantendo a mais
+  // recente por parsed_at. Cada conjunto extra é deletado.
+  var grupos = {};
+  D.faturas.forEach(function(f){
+    if(!f.uc || !f.mes_referencia) return;
+    var k = String(f.uc).trim() + '|' + String(f.mes_referencia).trim();
+    if(!grupos[k]) grupos[k] = [];
+    grupos[k].push(f);
+  });
+  var paraExcluir = [];
+  Object.keys(grupos).forEach(function(k){
+    var arr = grupos[k];
+    if(arr.length <= 1) return;
+    arr.sort(function(a,b){
+      var ta = a.parsed_at || a.created_at || '';
+      var tb = b.parsed_at || b.created_at || '';
+      return tb.localeCompare(ta); // mais recente primeiro
+    });
+    // Mantém arr[0], descarta o resto
+    for(var i=1; i<arr.length; i++) paraExcluir.push(arr[i]);
+  });
+  if(!paraExcluir.length){
+    toast('Nenhuma duplicata encontrada.', 'info');
+    return;
+  }
+  if(!confirm('Encontradas '+paraExcluir.length+' fatura(s) duplicada(s).\n\nMantém a mais recente de cada (UC × mês) e exclui as demais.\nSeguir?')) return;
+
+  var btn = document.getElementById('btn-limpar-dup');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Limpando...'; }
+  var ok = 0, falhas = 0;
+  for(var i=0; i<paraExcluir.length; i++){
+    var sucesso = await sbDelete('faturas_parsed?id=eq.'+paraExcluir[i].id);
+    if(sucesso) ok++; else falhas++;
+  }
+  await carregarDados();
+  if(btn){ btn.disabled = false; btn.textContent = '🧹 Limpar duplicatas'; }
+  if(falhas) toast(ok+' excluída(s), '+falhas+' falhou(aram).', 'warn');
+  else toast(ok+' duplicata(s) removida(s).', 'success');
 }
 
 async function downloadRelatorio(faturaId){
