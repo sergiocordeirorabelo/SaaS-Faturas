@@ -51,11 +51,12 @@ async def _parse_and_analyze(db: SupabaseClient, task_id: str, pdfs: list, task:
             mes_ref = pdf_info.get("mes_referencia", "")
             tipo = pdf_info.get("tipo", "")
 
-            if tipo != "detalhada":
-                continue  # Só processa faturas detalhadas
-
-            # Baixa PDF do Supabase Storage
-            storage_path = f"faturas/{uc}/{mes_ref.replace('/', '-')}_detalhada.pdf"
+            # Storage path vem direto do extractor (detalhada e simples têm caminhos diferentes).
+            # Fallback pra reconstrução antiga caso o extractor não tenha mandado.
+            storage_path = pdf_info.get("storage_path") or (
+                f"faturas/{uc}/{mes_ref.replace('/', '-')}"
+                + ("_detalhada.pdf" if tipo == "detalhada" else ".pdf")
+            )
             tmp_path = Path(f"/tmp/parse_{task_id}_{uc}_{mes_ref.replace('/', '-')}.pdf")
 
             def _download():
