@@ -370,10 +370,19 @@ function fmtElapsed(ms){
 
 async function atualizarProgresso(){
   if(!P.id) return;
-  var rows = await sbGet('extraction_requests?id=eq.'+P.id+'&select=id,status,status_detail,pdf_links,credentials,updated_at');
+  var resultados = await Promise.all([
+    sbGet('extraction_requests?id=eq.'+P.id+'&select=id,status,status_detail,pdf_links,credentials,updated_at'),
+    sbGet('faturas_parsed?extraction_id=eq.'+P.id+'&select=id'),
+  ]);
+  var rows = resultados[0];
+  var fatRows = resultados[1] || [];
   if(!rows || !rows[0]){ return; }
   var t = rows[0];
-  var n = (t.pdf_links && t.pdf_links.length) ? t.pdf_links.length : 0;
+  var nSalvas = fatRows.length;
+  var nLinks = (t.pdf_links && t.pdf_links.length) ? t.pdf_links.length : 0;
+  // Conta o que mais reflete o real: salvas em faturas_parsed (em tempo real)
+  // ou pdf_links (atualizado no fim). Pega o maior dos dois.
+  var n = Math.max(nSalvas, nLinks);
   var alvo = Math.max(P.target, n); // se baixar mais que esperado (multi-UC), expande o alvo
   var pct = Math.min(100, Math.round((n / Math.max(alvo, 1)) * 100));
   if(t.status === 'concluido') pct = 100;

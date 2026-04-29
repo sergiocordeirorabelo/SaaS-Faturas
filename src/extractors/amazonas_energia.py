@@ -270,6 +270,19 @@ class AmazonasEnergiaHTTPExtractor:
                 task_id=self.task_id,
             )
 
+            # 6. Save mínimo em faturas_parsed (idempotente via upsert uc+mes).
+            # Garante que mesmo se o worker for interrompido antes do parser
+            # regex rodar, a fatura já está no painel.
+            await self.db.save_fatura_parsed(
+                {
+                    "uc": id_uc,
+                    "mes_referencia": mes_ano,
+                    "total_a_pagar": fatura.get("VALOR_TOTAL"),
+                },
+                extraction_id=self.task_id,
+                source_pdf_path=storage_path,
+            )
+
             return {
                 "mes_referencia": mes_ano,
                 "uc": id_uc,
@@ -384,6 +397,17 @@ class AmazonasEnergiaHTTPExtractor:
             storage_path = f"faturas/{id_uc}/{mes_str}.pdf"
             storage_url = await self.db.upload_pdf(
                 local_path=local_path, storage_path=storage_path, task_id=self.task_id,
+            )
+
+            # Save mínimo em faturas_parsed (idempotente via upsert uc+mes).
+            await self.db.save_fatura_parsed(
+                {
+                    "uc": id_uc,
+                    "mes_referencia": mes_ano,
+                    "total_a_pagar": fatura.get("VALOR_TOTAL"),
+                },
+                extraction_id=self.task_id,
+                source_pdf_path=storage_path,
             )
 
             return {
