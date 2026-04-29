@@ -161,6 +161,11 @@ footer{text-align:center;color:var(--hint);font-size:11px;margin-top:30px}
         <input id="ext-email" type="email" placeholder="contato@empresa.com">
       </div>
     </div>
+    <div class="field" style="margin-bottom:12px">
+      <label>UCs específicas (opcional)</label>
+      <input id="ext-ucs" type="text" placeholder="Ex: 0290699-6, 0582488-5 (vazio = todas)" autocomplete="off">
+      <div class="help" style="margin-top:4px">Separe por vírgula. Se deixar vazio, baixa de todas as UCs do CPF/CNPJ.</div>
+    </div>
     <button id="btn-extrair" class="btn primary full" onclick="iniciarExtracao()">⚡ Extrair Faturas</button>
     <div id="ext-error" class="help" style="display:none;color:var(--red);margin-top:8px"></div>
 
@@ -308,6 +313,14 @@ async function iniciarExtracao(){
   var creds = { cpf_cnpj: cpf, senha: senha, meses: meses };
   if(email) creds.email_contato = email;
 
+  var ucsRaw = (document.getElementById('ext-ucs').value || '').trim();
+  if(ucsRaw){
+    var lista = ucsRaw.split(/[,;\s]+/)
+      .map(function(s){ return s.replace(/\D/g,''); })
+      .filter(function(s){ return s.length > 0; });
+    if(lista.length) creds.selected_ucs = lista;
+  }
+
   btn.disabled = true;
   btn.innerHTML = '<span class="loading"></span>Enviando...';
 
@@ -322,6 +335,7 @@ async function iniciarExtracao(){
     document.getElementById('ext-cpf').value = '';
     document.getElementById('ext-senha').value = '';
     document.getElementById('ext-email').value = '';
+    document.getElementById('ext-ucs').value = '';
     iniciarPolling(r[0].id, meses);
     await carregarFaturas();
   } catch(e){

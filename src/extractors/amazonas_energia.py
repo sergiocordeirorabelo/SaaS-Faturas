@@ -64,25 +64,59 @@ class AmazonasEnergiaHTTPExtractor:
             # 1. Login
             jwt, clientes = await self._login(client, cpf, senha)
 
-            # 2. Monta lista de UCs
-            clientes_ucs = []
+            # 1b. Tenta extrair nome do titular (do CLIENTES ou do JWT)
+            self.cliente_nome = None
+            for cli in clientes:
+                nome = cli.get("NOME") or cli.get("RAZAO_SOCIAL") or cli.get("NOME_CLIENTE")
+                if nome:
+                    self.cliente_nome = str(nome).strip()
+                    break
+            if not self.cliente_nome:
+                try:
+                    import base64, json as _json
+                    jwt_payload = _json.loads(base64.b64decode(jwt.split('.')[1] + '=='))
+                    self.cliente_nome = (
+                        jwt_payload.get("NOME")
+                        or jwt_payload.get("RAZAO_SOCIAL")
+                        or jwt_payload.get("NOME_CLIENTE")
+                    )
+                except Exception:
+                    pass
+
+            # 2. Monta lista de UCs (todas — antes de filtrar)
+            todas_ucs = []
             for cli in clientes:
                 id_cli = cli.get("ID_CLIENTE")
                 for uc in cli.get("UNIDADES_CONSUMIDORAS", []):
-                    clientes_ucs.append({"id_cliente": id_cli, "id_uc": uc["ID_UC"]})
+                    todas_ucs.append({"id_cliente": id_cli, "id_uc": uc["ID_UC"]})
 
             # Filtra UCs selecionadas
-            selected_ucs = self.credentials.get("selected_ucs", [])
+            selected_ucs = self.credentials.get("selected_ucs", []) or []
             if selected_ucs:
-                selected_set = set(str(u) for u in selected_ucs)
-                clientes_ucs = [c for c in clientes_ucs if str(c["id_uc"]) in selected_set]
+                selected_set = set(str(u).replace("-", "").lstrip("0") for u in selected_ucs)
+                clientes_ucs = [
+                    c for c in todas_ucs
+                    if str(c["id_uc"]).lstrip("0") in selected_set
+                ]
+            else:
+                clientes_ucs = list(todas_ucs)
 
             meses_limit = int(self.credentials.get("meses", settings.MAX_INVOICES_MONTHS))
 
-            logger.info(
-                f"[Task {self.task_id}] Login OK! "
-                f"{len(clientes_ucs)} UC(s) | {meses_limit} meses"
+            ucs_str = ", ".join(str(c["id_uc"]) for c in todas_ucs[:10])
+            if len(todas_ucs) > 10:
+                ucs_str += f" e mais {len(todas_ucs) - 10}"
+
+            nome_log = f" — {self.cliente_nome}" if self.cliente_nome else ""
+            detalhe_login = (
+                f"Login OK{nome_log}. {len(todas_ucs)} UC(s) encontradas: {ucs_str}. "
+                f"Baixando {len(clientes_ucs)} (últimos {meses_limit} meses)."
             )
+            logger.info(f"[Task {self.task_id}] {detalhe_login}")
+            try:
+                await self.db.update_task_status(self.task_id, "em_progresso", detalhe_login)
+            except Exception as exc:
+                logger.warning(f"[Task {self.task_id}] Falha update status_detail: {exc}")
 
             auth_headers = {
                 **MOBILE_HEADERS,
@@ -273,12 +307,15 @@ class AmazonasEnergiaHTTPExtractor:
             # 6. Save mínimo em faturas_parsed (idempotente via upsert uc+mes).
             # Garante que mesmo se o worker for interrompido antes do parser
             # regex rodar, a fatura já está no painel.
+            payload_min = {
+                "uc": id_uc,
+                "mes_referencia": mes_ano,
+                "total_a_pagar": fatura.get("VALOR_TOTAL"),
+            }
+            if getattr(self, "cliente_nome", None):
+                payload_min["cliente_nome"] = self.cliente_nome
             await self.db.save_fatura_parsed(
-                {
-                    "uc": id_uc,
-                    "mes_referencia": mes_ano,
-                    "total_a_pagar": fatura.get("VALOR_TOTAL"),
-                },
+                payload_min,
                 extraction_id=self.task_id,
                 source_pdf_path=storage_path,
             )
@@ -400,12 +437,15 @@ class AmazonasEnergiaHTTPExtractor:
             )
 
             # Save mínimo em faturas_parsed (idempotente via upsert uc+mes).
+            payload_min = {
+                "uc": id_uc,
+                "mes_referencia": mes_ano,
+                "total_a_pagar": fatura.get("VALOR_TOTAL"),
+            }
+            if getattr(self, "cliente_nome", None):
+                payload_min["cliente_nome"] = self.cliente_nome
             await self.db.save_fatura_parsed(
-                {
-                    "uc": id_uc,
-                    "mes_referencia": mes_ano,
-                    "total_a_pagar": fatura.get("VALOR_TOTAL"),
-                },
+                payload_min,
                 extraction_id=self.task_id,
                 source_pdf_path=storage_path,
             )
