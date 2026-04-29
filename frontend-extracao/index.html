@@ -157,6 +157,7 @@ footer{text-align:center;color:var(--hint);font-size:11px;margin-top:30px}
     <div class="list-head">
       <h2>Extrações recentes</h2>
       <span class="badge" id="ext-count" style="background:var(--bg3);color:var(--muted)">—</span>
+      <button class="btn sm" id="btn-limpar-ext" onclick="limparExtracoes()" title="Apaga todas as extrações listadas">🧹 Limpar extrações</button>
       <button class="btn sm" onclick="carregarTudo()">↻ Atualizar</button>
     </div>
     <div id="ext-list">
@@ -420,6 +421,26 @@ async function limparDuplicatas(){
   btn.disabled = false; btn.textContent = '🧹 Limpar duplicatas';
   if(falhas) toast(ok+' excluída(s), '+falhas+' falhou(aram).', 'warn');
   else toast(ok+' duplicata(s) removida(s).', 'success');
+}
+
+async function limparExtracoes(){
+  if(!D.extracoes.length){ toast('Nada pra limpar.', 'info'); return; }
+  var temAtiva = D.extracoes.some(function(t){ return t.status==='pendente' || t.status==='em_progresso'; });
+  var aviso = D.extracoes.length+' extração(ões) listadas serão apagadas.';
+  if(temAtiva) aviso += '\n\n⚠ Há extração em andamento — vai apagar também.';
+  if(!confirm(aviso+'\n\nSeguir?')) return;
+
+  var btn = document.getElementById('btn-limpar-ext');
+  btn.disabled = true; btn.textContent = '⏳ Limpando...';
+  var ok = 0, falhas = 0;
+  for(var i=0; i<D.extracoes.length; i++){
+    var sucesso = await sbDelete('extraction_requests?id=eq.'+D.extracoes[i].id);
+    if(sucesso) ok++; else falhas++;
+  }
+  await carregarExtracoes();
+  btn.disabled = false; btn.textContent = '🧹 Limpar extrações';
+  if(falhas) toast(ok+' excluída(s), '+falhas+' falhou(aram). Worker offline?', 'warn');
+  else toast(ok+' extração(ões) removida(s).', 'success');
 }
 
 // ── Worker status ──────────────────────────────────────────────────────────

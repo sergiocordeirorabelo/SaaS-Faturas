@@ -734,7 +734,7 @@ async def handle_db_delete(request: web.Request) -> web.Response:
     if not table or not qs:
         return web.json_response({"error": "tabela e filtro obrigatórios"}, status=400)
 
-    TABELAS_PERMITIDAS = {"faturas_parsed", "faturas_analise", "alertas_de_fatura"}
+    TABELAS_PERMITIDAS = {"faturas_parsed", "faturas_analise", "alertas_de_fatura", "extraction_requests"}
     if table not in TABELAS_PERMITIDAS:
         return web.json_response({"error": f"tabela não permitida: {table}"}, status=403)
 
