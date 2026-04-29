@@ -91,6 +91,20 @@ tr:last-child td{border-bottom:0}
 @keyframes tout{to{transform:translateX(100%);opacity:0}}
 @media (max-width:640px){#toast-container{left:12px;right:12px;top:12px}.toast{min-width:0;max-width:none}}
 
+/* Grupos por cliente */
+.grupo-cliente{border:1px solid var(--border);border-radius:8px;margin-bottom:10px;overflow:hidden;background:var(--bg2)}
+.grupo-cliente[open]{border-color:var(--border2)}
+.grupo-head{padding:12px 14px;cursor:pointer;display:flex;align-items:center;gap:12px;list-style:none;background:var(--bg3);user-select:none}
+.grupo-head::-webkit-details-marker{display:none}
+.grupo-head::before{content:'▸';font-size:11px;color:var(--muted);transition:transform .15s;flex-shrink:0}
+.grupo-cliente[open] .grupo-head::before{transform:rotate(90deg)}
+.grupo-info{flex:1;min-width:0}
+.grupo-nome{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grupo-meta{font-size:11px;color:var(--muted);margin-top:2px}
+.grupo-del{flex-shrink:0}
+.grupo-cliente table{margin:0}
+.grupo-cliente th{background:var(--bg2)}
+
 /* Loading state */
 .loading{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top:2px solid var(--blue);border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:6px}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -347,34 +361,98 @@ async function carregarExtracoes(){
 }
 
 async function carregarFaturas(){
-  var rows = await sbGet('faturas_parsed?select=id,uc,mes_referencia,cliente_nome,total_a_pagar,parsed_at,source_pdf_path&order=parsed_at.desc&limit=300');
-  D.faturas = Array.isArray(rows) ? rows : [];
+  var resultados = await Promise.all([
+    sbGet('faturas_parsed?select=id,extraction_id,uc,mes_referencia,cliente_nome,total_a_pagar,parsed_at,source_pdf_path&order=parsed_at.desc&limit=500'),
+    sbGet('extraction_requests?select=id,credentials&limit=2000'),
+  ]);
+  D.faturas = Array.isArray(resultados[0]) ? resultados[0] : [];
+  var extracoes = Array.isArray(resultados[1]) ? resultados[1] : [];
+
+  // mapa extraction_id -> cpf_cnpj
+  var docPorExt = {};
+  extracoes.forEach(function(e){
+    var doc = e && e.credentials && e.credentials.cpf_cnpj;
+    if(e && e.id && doc) docPorExt[e.id] = String(doc).replace(/\D/g,'');
+  });
+
+  // anota doc em cada fatura
+  D.faturas.forEach(function(f){
+    f._cpf_cnpj = (f.extraction_id && docPorExt[f.extraction_id]) || '';
+  });
+
   document.getElementById('fat-count').textContent = D.faturas.length + ' fatura(s)';
 
   var cont = document.getElementById('fat-list');
   if(!D.faturas.length){ cont.innerHTML = '<div class="empty">Nenhuma fatura baixada ainda.</div>'; return; }
 
-  var html = '<table><thead><tr>'
-    + '<th>UC / Mês</th><th>Cliente</th><th class="r">Valor</th><th class="r">Baixada</th><th class="r">Ações</th>'
-    + '</tr></thead><tbody>';
-
+  // agrupa por cpf_cnpj || cliente_nome
+  var grupos = {};
+  var ordem = [];
   D.faturas.forEach(function(f){
-    var ucPdf = f.source_pdf_path
-      ? '<a href="'+SB+'/storage/v1/object/public/Faturas/'+encodeURI(f.source_pdf_path)+'" target="_blank" class="btn sm" title="Ver PDF">📄</a>'
-      : '';
-    html += '<tr>'
-      + '<td><b>'+escapeHTML(f.uc||'?')+'</b><div class="muted-sm">'+escapeHTML(f.mes_referencia||'')+'</div></td>'
-      + '<td>'+escapeHTML((f.cliente_nome||'').slice(0,40))+'</td>'
-      + '<td class="r">'+fmtBRL(f.total_a_pagar)+'</td>'
-      + '<td class="r muted-sm">'+fmtDate(f.parsed_at)+'</td>'
-      + '<td class="r" style="white-space:nowrap">'
-        + ucPdf
-        + ' <button class="btn red sm" onclick="excluirFatura(\''+f.id+'\',\''+escapeHTML(f.uc||'')+'\',\''+escapeHTML(f.mes_referencia||'')+'\')" title="Excluir">🗑</button>'
-      + '</td>'
-      + '</tr>';
+    var chave = f._cpf_cnpj || ('nome:'+(f.cliente_nome||'sem cliente'));
+    if(!grupos[chave]){
+      grupos[chave] = { chave: chave, doc: f._cpf_cnpj || '', nome: f.cliente_nome || '(sem cliente)', faturas: [], total: 0 };
+      ordem.push(chave);
+    }
+    grupos[chave].faturas.push(f);
+    grupos[chave].total += parseFloat(f.total_a_pagar) || 0;
   });
-  html += '</tbody></table>';
+
+  D._grupos = grupos;
+  D._ordemGrupos = ordem;
+
+  var html = '';
+  ordem.forEach(function(chave, idx){
+    var g = grupos[chave];
+    var docFmt = g.doc ? formatDoc(g.doc) : '<span style="color:var(--hint)">CPF/CNPJ não vinculado</span>';
+    var aberto = idx === 0 ? ' open' : '';
+    html += '<details class="grupo-cliente"'+aberto+'>'
+      + '<summary class="grupo-head">'
+        + '<div class="grupo-info">'
+          + '<div class="grupo-nome">'+escapeHTML(g.nome)+'</div>'
+          + '<div class="grupo-meta">'+docFmt+' · <b>'+g.faturas.length+'</b> fatura(s) · <b>'+fmtBRL(g.total)+'</b></div>'
+        + '</div>'
+        + '<button class="btn red sm grupo-del" onclick="event.preventDefault();excluirGrupo('+idx+')" title="Excluir todas as faturas do grupo">🗑 Excluir grupo</button>'
+      + '</summary>'
+      + '<table><thead><tr>'
+        + '<th>UC / Mês</th><th class="r">Valor</th><th class="r">Baixada</th><th class="r">Ações</th>'
+      + '</tr></thead><tbody>';
+    g.faturas.forEach(function(f){
+      var ucPdf = f.source_pdf_path
+        ? '<a href="'+SB+'/storage/v1/object/public/Faturas/'+encodeURI(f.source_pdf_path)+'" target="_blank" class="btn sm" title="Ver PDF">📄</a>'
+        : '';
+      html += '<tr>'
+        + '<td><b>'+escapeHTML(f.uc||'?')+'</b><div class="muted-sm">'+escapeHTML(f.mes_referencia||'')+'</div></td>'
+        + '<td class="r">'+fmtBRL(f.total_a_pagar)+'</td>'
+        + '<td class="r muted-sm">'+fmtDate(f.parsed_at)+'</td>'
+        + '<td class="r" style="white-space:nowrap">'
+          + ucPdf
+          + ' <button class="btn red sm" onclick="excluirFatura(\''+f.id+'\',\''+escapeHTML(f.uc||'')+'\',\''+escapeHTML(f.mes_referencia||'')+'\')" title="Excluir">🗑</button>'
+        + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table></details>';
+  });
   cont.innerHTML = html;
+}
+
+async function excluirGrupo(idx){
+  var chave = D._ordemGrupos && D._ordemGrupos[idx];
+  var g = chave && D._grupos && D._grupos[chave];
+  if(!g || !g.faturas.length){ toast('Grupo não encontrado.', 'info'); return; }
+  var faturas = g.faturas;
+  var label = g.nome + (g.doc ? ' · ' + formatDoc(g.doc) : '');
+  if(!confirm('Excluir TODAS as '+faturas.length+' fatura(s) deste cliente?\n\n'+label+'\n\nAnálises vinculadas também serão removidas (cascade). PDFs no Storage permanecem.')) return;
+
+  toast('Excluindo '+faturas.length+' fatura(s)...', 'info', 2000);
+  var ok = 0, falhas = 0;
+  for(var i=0; i<faturas.length; i++){
+    var sucesso = await sbDelete('faturas_parsed?id=eq.'+faturas[i].id);
+    if(sucesso) ok++; else falhas++;
+  }
+  await carregarFaturas();
+  if(falhas) toast(ok+' excluída(s), '+falhas+' falhou(aram). Worker offline?', 'warn');
+  else toast('Grupo removido ('+ok+' faturas).', 'success');
 }
 
 async function excluirFatura(id, uc, mes){
