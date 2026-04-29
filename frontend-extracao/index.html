@@ -120,7 +120,6 @@ footer{text-align:center;color:var(--hint);font-size:11px;margin-top:30px}
       <div class="logo">⚡</div>
       <div class="brand-text">
         <h1>Extração de Faturas</h1>
-        <small>Amazonas Energia · Portal Mobile API</small>
       </div>
     </div>
     <div class="worker-status" id="worker-status">
@@ -164,6 +163,25 @@ footer{text-align:center;color:var(--hint);font-size:11px;margin-top:30px}
     </div>
     <button id="btn-extrair" class="btn primary full" onclick="iniciarExtracao()">⚡ Extrair Faturas</button>
     <div id="ext-error" class="help" style="display:none;color:var(--red);margin-top:8px"></div>
+
+    <!-- Painel de progresso (aparece durante extração ativa) -->
+    <div id="prog-panel" style="display:none;margin-top:16px;padding:14px;background:var(--bg3);border:1px solid var(--border);border-radius:8px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span class="loading" id="prog-spinner"></span>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600" id="prog-title">Iniciando extração...</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px" id="prog-detail">Aguardando worker pegar a tarefa.</div>
+        </div>
+        <div style="font-size:14px;font-weight:700;color:var(--accent)" id="prog-percent">0%</div>
+      </div>
+      <div style="height:8px;background:var(--bg2);border-radius:99px;overflow:hidden">
+        <div id="prog-bar" style="height:100%;width:0%;background:var(--green);border-radius:99px;transition:width .4s ease"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:6px">
+        <span id="prog-counter">0 de 0 faturas</span>
+        <span id="prog-elapsed">0s</span>
+      </div>
+    </div>
   </div>
 
   <!-- Lista de faturas -->
@@ -300,10 +318,11 @@ async function iniciarExtracao(){
       status: 'pendente',
     });
     if(!r || !r[0]) throw new Error('Falha ao registrar a extração.');
-    toast('Extração enfileirada. Acompanhe abaixo.', 'success');
+    toast('Extração enfileirada.', 'success');
     document.getElementById('ext-cpf').value = '';
     document.getElementById('ext-senha').value = '';
     document.getElementById('ext-email').value = '';
+    iniciarPolling(r[0].id, meses);
     await carregarFaturas();
   } catch(e){
     errEl.textContent = 'Erro: ' + (e.message || e);
@@ -312,6 +331,88 @@ async function iniciarExtracao(){
   } finally {
     btn.disabled = false;
     btn.textContent = '⚡ Extrair Faturas';
+  }
+}
+
+// ── Painel de progresso ────────────────────────────────────────────────────
+var P = { id:null, target:0, startedAt:0, timer:null };
+
+function iniciarPolling(extId, mesesAlvo){
+  pararPolling();
+  P.id = extId;
+  P.target = Math.max(1, mesesAlvo || 1);
+  P.startedAt = Date.now();
+
+  var panel = document.getElementById('prog-panel');
+  panel.style.display = 'block';
+  document.getElementById('prog-spinner').style.display = '';
+  document.getElementById('prog-title').textContent = 'Aguardando worker pegar a tarefa...';
+  document.getElementById('prog-detail').textContent = 'Status: pendente.';
+  document.getElementById('prog-bar').style.width = '0%';
+  document.getElementById('prog-percent').textContent = '0%';
+  document.getElementById('prog-counter').textContent = '0 de ~' + P.target + ' faturas';
+  document.getElementById('prog-elapsed').textContent = '0s';
+
+  atualizarProgresso();
+  P.timer = setInterval(atualizarProgresso, 2500);
+}
+
+function pararPolling(){
+  if(P.timer){ clearInterval(P.timer); P.timer = null; }
+}
+
+function fmtElapsed(ms){
+  var s = Math.floor(ms/1000);
+  if(s < 60) return s + 's';
+  var m = Math.floor(s/60), r = s%60;
+  return m + 'm ' + r + 's';
+}
+
+async function atualizarProgresso(){
+  if(!P.id) return;
+  var rows = await sbGet('extraction_requests?id=eq.'+P.id+'&select=id,status,status_detail,pdf_links,credentials,updated_at');
+  if(!rows || !rows[0]){ return; }
+  var t = rows[0];
+  var n = (t.pdf_links && t.pdf_links.length) ? t.pdf_links.length : 0;
+  var alvo = Math.max(P.target, n); // se baixar mais que esperado (multi-UC), expande o alvo
+  var pct = Math.min(100, Math.round((n / Math.max(alvo, 1)) * 100));
+  if(t.status === 'concluido') pct = 100;
+
+  document.getElementById('prog-counter').textContent = n + ' de ~' + alvo + ' faturas';
+  document.getElementById('prog-elapsed').textContent = fmtElapsed(Date.now() - P.startedAt);
+  document.getElementById('prog-bar').style.width = pct + '%';
+  document.getElementById('prog-percent').textContent = pct + '%';
+
+  var titulo = document.getElementById('prog-title');
+  var detail = document.getElementById('prog-detail');
+  var spinner = document.getElementById('prog-spinner');
+
+  if(t.status === 'pendente'){
+    titulo.textContent = 'Aguardando worker pegar a tarefa...';
+    detail.textContent = t.status_detail || 'Na fila.';
+  } else if(t.status === 'em_progresso'){
+    titulo.textContent = '⚙ Extraindo faturas — '+ n +' baixada(s)';
+    detail.textContent = (t.status_detail || 'Login no portal e download em andamento.').slice(0, 120);
+    document.getElementById('prog-bar').style.background = 'var(--green)';
+  } else if(t.status === 'concluido'){
+    titulo.textContent = '✓ Concluído — '+ n +' fatura(s) baixada(s)';
+    detail.textContent = t.status_detail || 'Tudo pronto. Veja a lista abaixo.';
+    document.getElementById('prog-bar').style.background = 'var(--green)';
+    spinner.style.display = 'none';
+    pararPolling();
+    await carregarFaturas();
+    setTimeout(function(){
+      var panel = document.getElementById('prog-panel');
+      if(P.id === t.id) panel.style.display = 'none';
+    }, 8000);
+  } else if(t.status === 'erro_extracao' || t.status === 'credenciais_invalidas'){
+    titulo.textContent = '✕ Falha na extração';
+    detail.textContent = t.status_detail || 'Erro desconhecido.';
+    document.getElementById('prog-bar').style.background = 'var(--red)';
+    document.getElementById('prog-bar').style.width = '100%';
+    document.getElementById('prog-percent').textContent = '—';
+    spinner.style.display = 'none';
+    pararPolling();
   }
 }
 
