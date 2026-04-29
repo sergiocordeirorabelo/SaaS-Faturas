@@ -166,25 +166,13 @@ footer{text-align:center;color:var(--hint);font-size:11px;margin-top:30px}
     <div id="ext-error" class="help" style="display:none;color:var(--red);margin-top:8px"></div>
   </div>
 
-  <!-- Lista de extrações -->
-  <div class="card">
-    <div class="list-head">
-      <h2>Extrações recentes</h2>
-      <span class="badge" id="ext-count" style="background:var(--bg3);color:var(--muted)">—</span>
-      <button class="btn sm" id="btn-limpar-ext" onclick="limparExtracoes()" title="Apaga todas as extrações listadas">🧹 Limpar extrações</button>
-      <button class="btn sm" onclick="carregarTudo()">↻ Atualizar</button>
-    </div>
-    <div id="ext-list">
-      <div class="empty">Carregando...</div>
-    </div>
-  </div>
-
   <!-- Lista de faturas -->
   <div class="card">
     <div class="list-head">
       <h2>Faturas baixadas</h2>
       <span class="badge" id="fat-count" style="background:var(--bg3);color:var(--muted)">—</span>
       <button class="btn sm" id="btn-dedup" onclick="limparDuplicatas()" title="Mantém a mais recente de cada UC × mês">🧹 Limpar duplicatas</button>
+      <button class="btn sm" onclick="carregarFaturas()">↻ Atualizar</button>
     </div>
     <div id="fat-list">
       <div class="empty">Carregando...</div>
@@ -316,7 +304,7 @@ async function iniciarExtracao(){
     document.getElementById('ext-cpf').value = '';
     document.getElementById('ext-senha').value = '';
     document.getElementById('ext-email').value = '';
-    await carregarTudo();
+    await carregarFaturas();
   } catch(e){
     errEl.textContent = 'Erro: ' + (e.message || e);
     errEl.style.display = 'block';
@@ -328,36 +316,46 @@ async function iniciarExtracao(){
 }
 
 // ── Listas ─────────────────────────────────────────────────────────────────
-var D = { extracoes: [], faturas: [] };
+var D = { faturas: [] };
 
-async function carregarExtracoes(){
-  var rows = await sbGet('extraction_requests?select=id,concessionaria,credentials,status,status_detail,pdf_links,created_at,updated_at&order=created_at.desc&limit=20');
-  D.extracoes = Array.isArray(rows) ? rows : [];
-  document.getElementById('ext-count').textContent = D.extracoes.length + ' total';
+// Constrói o path provável do PDF no Storage. Convenção do worker:
+//   faturas/{uc_sem_traço}/{mes-traço}_detalhada.pdf  (ou _simples.pdf)
+function buildPdfPath(f, tipo){
+  if(!f.uc || !f.mes_referencia) return null;
+  var ucClean = String(f.uc).replace(/\D/g, '').replace(/^0+/, '');
+  if(!ucClean) return null;
+  var mes = String(f.mes_referencia).replace('/', '-');
+  return 'faturas/' + ucClean + '/' + mes + '_' + (tipo || 'detalhada') + '.pdf';
+}
 
-  var cont = document.getElementById('ext-list');
-  if(!D.extracoes.length){ cont.innerHTML = '<div class="empty">Nenhuma extração ainda.</div>'; return; }
+function pdfUrl(path){
+  return SB + '/storage/v1/object/public/Faturas/' + path.split('/').map(encodeURIComponent).join('/');
+}
 
-  var html = '<table><thead><tr>'
-    + '<th>CPF/CNPJ</th><th>Período</th><th>Status</th><th>PDFs</th>'
-    + '<th class="r">Criada</th></tr></thead><tbody>';
+async function abrirPdf(faturaId){
+  var f = D.faturas.find(function(x){ return x.id === faturaId; });
+  if(!f){ toast('Fatura não encontrada.', 'error'); return; }
 
-  D.extracoes.forEach(function(t){
-    var creds = t.credentials || {};
-    var docMask = creds.cpf_cnpj ? formatDoc(creds.cpf_cnpj) : '—';
-    var meses = creds.meses ? (creds.meses + ' meses') : '—';
-    var n = (t.pdf_links && t.pdf_links.length) ? t.pdf_links.length : 0;
-    var detail = t.status_detail ? '<div class="muted-sm">'+escapeHTML(t.status_detail.slice(0,80))+'</div>' : '';
-    html += '<tr>'
-      + '<td>'+escapeHTML(docMask)+'</td>'
-      + '<td>'+escapeHTML(meses)+'</td>'
-      + '<td><span class="badge bg-'+escapeHTML(t.status)+'">'+escapeHTML(t.status||'')+'</span>'+detail+'</td>'
-      + '<td>'+(n>0 ? n + ' fatura(s)' : '—')+'</td>'
-      + '<td class="r">'+fmtDate(t.created_at)+'</td>'
-      + '</tr>';
-  });
-  html += '</tbody></table>';
-  cont.innerHTML = html;
+  // 1. path conhecido
+  if(f.source_pdf_path){
+    window.open(pdfUrl(f.source_pdf_path), '_blank');
+    return;
+  }
+  // 2. fallback: tenta detalhada, depois simples
+  var detalhada = buildPdfPath(f, 'detalhada');
+  var simples = buildPdfPath(f, 'simples');
+  if(!detalhada){ toast('Não foi possível inferir o PDF (UC ou mês ausentes).', 'warn'); return; }
+
+  toast('Procurando PDF...', 'info', 1500);
+  try{
+    var r = await fetch(pdfUrl(detalhada), {method:'HEAD'});
+    if(r.ok){ window.open(pdfUrl(detalhada), '_blank'); return; }
+  }catch(_){}
+  try{
+    var r2 = await fetch(pdfUrl(simples), {method:'HEAD'});
+    if(r2.ok){ window.open(pdfUrl(simples), '_blank'); return; }
+  }catch(_){}
+  toast('PDF não encontrado no Storage. (Pode ter sido baixado por outro fluxo.)', 'warn');
 }
 
 async function carregarFaturas(){
@@ -418,15 +416,12 @@ async function carregarFaturas(){
         + '<th>UC / Mês</th><th class="r">Valor</th><th class="r">Baixada</th><th class="r">Ações</th>'
       + '</tr></thead><tbody>';
     g.faturas.forEach(function(f){
-      var ucPdf = f.source_pdf_path
-        ? '<a href="'+SB+'/storage/v1/object/public/Faturas/'+encodeURI(f.source_pdf_path)+'" target="_blank" class="btn sm" title="Ver PDF">📄</a>'
-        : '';
       html += '<tr>'
         + '<td><b>'+escapeHTML(f.uc||'?')+'</b><div class="muted-sm">'+escapeHTML(f.mes_referencia||'')+'</div></td>'
         + '<td class="r">'+fmtBRL(f.total_a_pagar)+'</td>'
         + '<td class="r muted-sm">'+fmtDate(f.parsed_at)+'</td>'
         + '<td class="r" style="white-space:nowrap">'
-          + ucPdf
+          + '<button class="btn sm" onclick="abrirPdf(\''+f.id+'\')" title="Baixar / ver PDF">📄</button>'
           + ' <button class="btn red sm" onclick="excluirFatura(\''+f.id+'\',\''+escapeHTML(f.uc||'')+'\',\''+escapeHTML(f.mes_referencia||'')+'\')" title="Excluir">🗑</button>'
         + '</td>'
         + '</tr>';
@@ -501,26 +496,6 @@ async function limparDuplicatas(){
   else toast(ok+' duplicata(s) removida(s).', 'success');
 }
 
-async function limparExtracoes(){
-  if(!D.extracoes.length){ toast('Nada pra limpar.', 'info'); return; }
-  var temAtiva = D.extracoes.some(function(t){ return t.status==='pendente' || t.status==='em_progresso'; });
-  var aviso = D.extracoes.length+' extração(ões) listadas serão apagadas.';
-  if(temAtiva) aviso += '\n\n⚠ Há extração em andamento — vai apagar também.';
-  if(!confirm(aviso+'\n\nSeguir?')) return;
-
-  var btn = document.getElementById('btn-limpar-ext');
-  btn.disabled = true; btn.textContent = '⏳ Limpando...';
-  var ok = 0, falhas = 0;
-  for(var i=0; i<D.extracoes.length; i++){
-    var sucesso = await sbDelete('extraction_requests?id=eq.'+D.extracoes[i].id);
-    if(sucesso) ok++; else falhas++;
-  }
-  await carregarExtracoes();
-  btn.disabled = false; btn.textContent = '🧹 Limpar extrações';
-  if(falhas) toast(ok+' excluída(s), '+falhas+' falhou(aram). Worker offline?', 'warn');
-  else toast(ok+' extração(ões) removida(s).', 'success');
-}
-
 // ── Worker status ──────────────────────────────────────────────────────────
 async function checkWorker(){
   var dot = document.getElementById('worker-dot');
@@ -533,19 +508,11 @@ async function checkWorker(){
 }
 
 // ── Boot + auto-refresh ────────────────────────────────────────────────────
-async function carregarTudo(){
-  await Promise.all([carregarExtracoes(), carregarFaturas()]);
-}
-
 (async function init(){
   await checkWorker();
-  await carregarTudo();
-  // Auto-refresh a cada 5s — só se houver extração em andamento ou pendente
-  setInterval(async function(){
-    var temAndando = D.extracoes.some(function(t){ return t.status==='pendente' || t.status==='em_progresso'; });
-    if(temAndando) await carregarTudo();
-  }, 5000);
-  // Health check a cada 30s
+  await carregarFaturas();
+  // Recarrega faturas a cada 15s (cobre o caso de uma extração em andamento ir baixando)
+  setInterval(carregarFaturas, 15000);
   setInterval(checkWorker, 30000);
 })();
 </script>
