@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Extração de Faturas — Amazonas Energia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f8fafc; --bg2:#fff; --bg3:#f1f5f9;
+  --border:#e2e8f0; --border2:#cbd5e1;
+  --text:#0f172a; --muted:#64748b; --hint:#94a3b8;
+  --green:#059669; --green-bg:#d1fae5;
+  --amber:#d97706; --amber-bg:#fef3c7;
+  --red:#dc2626; --red-bg:#fee2e2;
+  --blue:#2563eb; --blue-bg:#dbeafe;
+  --accent:#0f172a;
+  --radius:10px;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+.wrap{max-width:1100px;margin:0 auto;padding:24px 20px 60px}
+
+/* Header */
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{width:36px;height:36px;background:var(--accent);color:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700}
+.brand-text h1{font-size:18px;font-weight:700;margin:0}
+.brand-text small{color:var(--muted);font-size:12px}
+.worker-status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);background:var(--bg2);border:1px solid var(--border);padding:6px 12px;border-radius:999px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--hint);transition:background .3s}
+.dot.ok{background:var(--green)}
+.dot.err{background:var(--red)}
+
+/* Cards */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:18px}
+.card h2{margin:0 0 4px;font-size:15px;font-weight:600}
+.card .sub{color:var(--muted);font-size:12px;margin-bottom:16px}
+
+/* Form */
+.row{display:grid;gap:12px;grid-template-columns:1fr 1fr;margin-bottom:12px}
+.row-3{display:grid;gap:12px;grid-template-columns:2fr 1fr 1fr;margin-bottom:12px}
+@media (max-width:640px){.row,.row-3{grid-template-columns:1fr}}
+.field label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px}
+.field input, .field select{width:100%;padding:9px 11px;border:1px solid var(--border2);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg2);color:var(--text);outline:none;transition:border-color .15s}
+.field input:focus, .field select:focus{border-color:var(--blue)}
+.help{font-size:11px;color:var(--hint);margin-top:4px}
+
+.btn{font-size:13px;padding:10px 18px;border-radius:8px;border:1px solid var(--border2);background:var(--bg2);color:var(--text);cursor:pointer;font-family:inherit;font-weight:500;transition:all .15s}
+.btn:hover{background:var(--bg3)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.primary:hover{opacity:.9;background:var(--accent)}
+.btn.green{background:var(--green);color:#fff;border-color:var(--green)}
+.btn.red{background:var(--red-bg);color:var(--red);border-color:#fecaca}
+.btn.red:hover{background:#fecaca}
+.btn.full{width:100%;padding:12px}
+.btn.sm{font-size:11px;padding:5px 10px}
+
+/* Tables */
+.list-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.list-head h2{margin:0;flex:1}
+table{width:100%;border-collapse:collapse}
+th{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--hint);font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
+td{font-size:13px;padding:10px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.r{text-align:right}
+.empty{text-align:center;padding:30px 10px;color:var(--hint);font-size:13px}
+.muted-sm{color:var(--muted);font-size:11px;margin-top:2px}
+
+/* Badges de status */
+.badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:999px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.bg-pendente{background:var(--amber-bg);color:var(--amber)}
+.bg-em_progresso{background:var(--blue-bg);color:var(--blue)}
+.bg-concluido{background:var(--green-bg);color:var(--green)}
+.bg-erro_extracao,.bg-credenciais_invalidas{background:var(--red-bg);color:var(--red)}
+
+/* Toast */
+#toast-container{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:10px}
+.toast{min-width:260px;max-width:380px;padding:12px 14px 12px 16px;border-radius:10px;background:var(--bg2);border-left:4px solid var(--blue);box-shadow:0 10px 25px rgba(15,23,42,.12),0 2px 6px rgba(15,23,42,.06);display:flex;align-items:flex-start;gap:10px;font-size:13px;animation:tin .22s ease-out}
+.toast.out{animation:tout .2s ease-in forwards}
+.toast .ico{font-size:16px;flex-shrink:0}
+.toast .msg{flex:1;line-height:1.45}
+.toast .close{background:none;border:none;color:var(--hint);cursor:pointer;font-size:16px;padding:0;line-height:1}
+.toast.success{border-left-color:var(--green)}
+.toast.error{border-left-color:var(--red)}
+.toast.warn{border-left-color:var(--amber)}
+@keyframes tin{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes tout{to{transform:translateX(100%);opacity:0}}
+@media (max-width:640px){#toast-container{left:12px;right:12px;top:12px}.toast{min-width:0;max-width:none}}
+
+/* Loading state */
+.loading{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top:2px solid var(--blue);border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+footer{text-align:center;color:var(--hint);font-size:11px;margin-top:30px}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo">⚡</div>
+      <div class="brand-text">
+        <h1>Extração de Faturas</h1>
+        <small>Amazonas Energia · Portal Mobile API</small>
+      </div>
+    </div>
+    <div class="worker-status" id="worker-status">
+      <span class="dot" id="worker-dot"></span>
+      <span id="worker-text">verificando...</span>
+    </div>
+  </header>
+
+  <!-- Form de extração -->
+  <div class="card">
+    <h2>Nova extração</h2>
+    <div class="sub">Informe as credenciais do portal Amazonas Energia. O worker baixa as faturas em segundo plano.</div>
+    <div class="row">
+      <div class="field">
+        <label>CPF ou CNPJ *</label>
+        <input id="ext-cpf" type="text" placeholder="00.000.000/0001-00" oninput="this.value=formatDoc(this.value)" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Senha do portal *</label>
+        <input id="ext-senha" type="password" placeholder="Senha de acesso" autocomplete="off">
+      </div>
+    </div>
+    <div class="row-3">
+      <div class="field">
+        <label>Período</label>
+        <select id="ext-meses">
+          <option value="1">Último mês</option>
+          <option value="3">Últimos 3 meses</option>
+          <option value="6">Últimos 6 meses</option>
+          <option value="12" selected>Últimos 12 meses</option>
+          <option value="24">Últimos 24 meses</option>
+          <option value="36">Últimos 36 meses</option>
+          <option value="60">Últimos 60 meses</option>
+          <option value="120">Últimos 10 anos</option>
+        </select>
+      </div>
+      <div class="field" style="grid-column:span 2">
+        <label>E-mail (opcional)</label>
+        <input id="ext-email" type="email" placeholder="contato@empresa.com">
+      </div>
+    </div>
+    <button id="btn-extrair" class="btn primary full" onclick="iniciarExtracao()">⚡ Extrair Faturas</button>
+    <div id="ext-error" class="help" style="display:none;color:var(--red);margin-top:8px"></div>
+  </div>
+
+  <!-- Lista de extrações -->
+  <div class="card">
+    <div class="list-head">
+      <h2>Extrações recentes</h2>
+      <span class="badge" id="ext-count" style="background:var(--bg3);color:var(--muted)">—</span>
+      <button class="btn sm" onclick="carregarTudo()">↻ Atualizar</button>
+    </div>
+    <div id="ext-list">
+      <div class="empty">Carregando...</div>
+    </div>
+  </div>
+
+  <!-- Lista de faturas -->
+  <div class="card">
+    <div class="list-head">
+      <h2>Faturas baixadas</h2>
+      <span class="badge" id="fat-count" style="background:var(--bg3);color:var(--muted)">—</span>
+      <button class="btn sm" id="btn-dedup" onclick="limparDuplicatas()" title="Mantém a mais recente de cada UC × mês">🧹 Limpar duplicatas</button>
+    </div>
+    <div id="fat-list">
+      <div class="empty">Carregando...</div>
+    </div>
+  </div>
+
+  <footer>
+    Painel de extração · backend em Railway · dados em Supabase
+  </footer>
+</div>
+
+<script>
+// ── Config (mesma do painel principal) ─────────────────────────────────────
+const SB  = 'https://shaihalexolocjjkkpoh.supabase.co';
+const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNoYWloYWxleG9sb2NqamtrcG9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMDA2ODUsImV4cCI6MjA5MDU3NjY4NX0.TfMwnhlu-TDZY2n_hxIhpUdXQEOdbr14SuH2e8R9cH8';
+const RW  = 'https://saas-faturas-production.up.railway.app';
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg, tipo, duration){
+  tipo = tipo || 'info';
+  duration = (duration === undefined) ? 3800 : duration;
+  var c = document.getElementById('toast-container');
+  if(!c){ c = document.createElement('div'); c.id = 'toast-container'; document.body.appendChild(c); }
+  var ico = {success:'✓', error:'✕', warn:'⚠', info:'ℹ'}[tipo] || 'ℹ';
+  var el = document.createElement('div');
+  el.className = 'toast ' + tipo;
+  el.innerHTML = '<span class="ico">'+ico+'</span><div class="msg"></div><button class="close" aria-label="Fechar">✕</button>';
+  el.querySelector('.msg').textContent = msg;
+  var rm = function(){ el.classList.add('out'); setTimeout(function(){ el.remove(); }, 220); };
+  el.querySelector('.close').onclick = rm;
+  c.appendChild(el);
+  if(duration > 0) setTimeout(rm, duration);
+}
+
+// ── API helpers ────────────────────────────────────────────────────────────
+async function sbGet(ep){
+  var r = await fetch(SB+'/rest/v1/'+ep, {headers:{apikey:KEY, Authorization:'Bearer '+KEY}});
+  if(!r.ok) return [];
+  return r.json();
+}
+async function sbPost(ep, body){
+  var r = await fetch(SB+'/rest/v1/'+ep, {
+    method:'POST',
+    headers:{apikey:KEY, Authorization:'Bearer '+KEY, 'Content-Type':'application/json', Prefer:'return=representation'},
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+async function sbDelete(ep){
+  var parts = ep.split('?');
+  var table = parts[0];
+  var qs = parts[1] || '';
+  if(!qs) return false;
+  try{
+    var r = await fetch(RW+'/db/'+table+'?'+qs, {
+      method:'DELETE',
+      headers:{'Content-Type':'application/json'},
+      signal: AbortSignal.timeout(15000),
+    });
+    return r.ok;
+  } catch(e){
+    console.error('sbDelete:', e);
+    return false;
+  }
+}
+
+// ── Format helpers ─────────────────────────────────────────────────────────
+function formatDoc(v){
+  var n = (v||'').replace(/\D/g,'').slice(0,14);
+  if(n.length<=3) return n;
+  if(n.length<=6) return n.slice(0,3)+'.'+n.slice(3);
+  if(n.length<=9) return n.slice(0,3)+'.'+n.slice(3,6)+'.'+n.slice(6);
+  if(n.length<=11) return n.slice(0,3)+'.'+n.slice(3,6)+'.'+n.slice(6,9)+'-'+n.slice(9);
+  return n.slice(0,2)+'.'+n.slice(2,5)+'.'+n.slice(5,8)+'/'+n.slice(8,12)+'-'+n.slice(12);
+}
+function isEmail(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v||'').trim()); }
+function fmtDate(s){
+  if(!s) return '';
+  try{ var d = new Date(s); return d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+  catch(_){ return s; }
+}
+function fmtBRL(v){ return 'R$ '+(parseFloat(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function escapeHTML(s){
+  return String(s||'').replace(/[&<>"']/g, function(c){
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+  });
+}
+
+// ── Iniciar extração ───────────────────────────────────────────────────────
+async function iniciarExtracao(){
+  var cpf   = document.getElementById('ext-cpf').value.replace(/\D/g,'');
+  var senha = document.getElementById('ext-senha').value;
+  var meses = parseInt(document.getElementById('ext-meses').value) || 12;
+  var email = document.getElementById('ext-email').value.trim();
+  var errEl = document.getElementById('ext-error');
+  var btn   = document.getElementById('btn-extrair');
+
+  if(!cpf || (cpf.length !== 11 && cpf.length !== 14)){
+    errEl.textContent = 'Informe um CPF ou CNPJ válido.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(!senha){
+    errEl.textContent = 'Informe a senha do portal.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(email && !isEmail(email)){
+    errEl.textContent = 'E-mail inválido.';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+
+  var creds = { cpf_cnpj: cpf, senha: senha, meses: meses };
+  if(email) creds.email_contato = email;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading"></span>Enviando...';
+
+  try{
+    var r = await sbPost('extraction_requests', {
+      concessionaria: 'amazonas_energia',
+      credentials: creds,
+      status: 'pendente',
+    });
+    if(!r || !r[0]) throw new Error('Falha ao registrar a extração.');
+    toast('Extração enfileirada. Acompanhe abaixo.', 'success');
+    document.getElementById('ext-cpf').value = '';
+    document.getElementById('ext-senha').value = '';
+    document.getElementById('ext-email').value = '';
+    await carregarTudo();
+  } catch(e){
+    errEl.textContent = 'Erro: ' + (e.message || e);
+    errEl.style.display = 'block';
+    toast('Falha ao iniciar extração.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⚡ Extrair Faturas';
+  }
+}
+
+// ── Listas ─────────────────────────────────────────────────────────────────
+var D = { extracoes: [], faturas: [] };
+
+async function carregarExtracoes(){
+  var rows = await sbGet('extraction_requests?select=id,concessionaria,credentials,status,status_detail,pdf_links,created_at,updated_at&order=created_at.desc&limit=20');
+  D.extracoes = Array.isArray(rows) ? rows : [];
+  document.getElementById('ext-count').textContent = D.extracoes.length + ' total';
+
+  var cont = document.getElementById('ext-list');
+  if(!D.extracoes.length){ cont.innerHTML = '<div class="empty">Nenhuma extração ainda.</div>'; return; }
+
+  var html = '<table><thead><tr>'
+    + '<th>CPF/CNPJ</th><th>Período</th><th>Status</th><th>PDFs</th>'
+    + '<th class="r">Criada</th></tr></thead><tbody>';
+
+  D.extracoes.forEach(function(t){
+    var creds = t.credentials || {};
+    var docMask = creds.cpf_cnpj ? formatDoc(creds.cpf_cnpj) : '—';
+    var meses = creds.meses ? (creds.meses + ' meses') : '—';
+    var n = (t.pdf_links && t.pdf_links.length) ? t.pdf_links.length : 0;
+    var detail = t.status_detail ? '<div class="muted-sm">'+escapeHTML(t.status_detail.slice(0,80))+'</div>' : '';
+    html += '<tr>'
+      + '<td>'+escapeHTML(docMask)+'</td>'
+      + '<td>'+escapeHTML(meses)+'</td>'
+      + '<td><span class="badge bg-'+escapeHTML(t.status)+'">'+escapeHTML(t.status||'')+'</span>'+detail+'</td>'
+      + '<td>'+(n>0 ? n + ' fatura(s)' : '—')+'</td>'
+      + '<td class="r">'+fmtDate(t.created_at)+'</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  cont.innerHTML = html;
+}
+
+async function carregarFaturas(){
+  var rows = await sbGet('faturas_parsed?select=id,uc,mes_referencia,cliente_nome,total_a_pagar,parsed_at,source_pdf_path&order=parsed_at.desc&limit=300');
+  D.faturas = Array.isArray(rows) ? rows : [];
+  document.getElementById('fat-count').textContent = D.faturas.length + ' fatura(s)';
+
+  var cont = document.getElementById('fat-list');
+  if(!D.faturas.length){ cont.innerHTML = '<div class="empty">Nenhuma fatura baixada ainda.</div>'; return; }
+
+  var html = '<table><thead><tr>'
+    + '<th>UC / Mês</th><th>Cliente</th><th class="r">Valor</th><th class="r">Baixada</th><th class="r">Ações</th>'
+    + '</tr></thead><tbody>';
+
+  D.faturas.forEach(function(f){
+    var ucPdf = f.source_pdf_path
+      ? '<a href="'+SB+'/storage/v1/object/public/Faturas/'+encodeURI(f.source_pdf_path)+'" target="_blank" class="btn sm" title="Ver PDF">📄</a>'
+      : '';
+    html += '<tr>'
+      + '<td><b>'+escapeHTML(f.uc||'?')+'</b><div class="muted-sm">'+escapeHTML(f.mes_referencia||'')+'</div></td>'
+      + '<td>'+escapeHTML((f.cliente_nome||'').slice(0,40))+'</td>'
+      + '<td class="r">'+fmtBRL(f.total_a_pagar)+'</td>'
+      + '<td class="r muted-sm">'+fmtDate(f.parsed_at)+'</td>'
+      + '<td class="r" style="white-space:nowrap">'
+        + ucPdf
+        + ' <button class="btn red sm" onclick="excluirFatura(\''+f.id+'\',\''+escapeHTML(f.uc||'')+'\',\''+escapeHTML(f.mes_referencia||'')+'\')" title="Excluir">🗑</button>'
+      + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  cont.innerHTML = html;
+}
+
+async function excluirFatura(id, uc, mes){
+  var label = (uc?('UC '+uc):'') + (mes?(' · '+mes):'');
+  if(!confirm('Excluir esta fatura?\n\n'+label+'\n\nA análise vinculada também será removida (cascade). PDF no Storage permanece.')) return;
+  var ok = await sbDelete('faturas_parsed?id=eq.'+id);
+  if(ok){
+    toast('Fatura removida.', 'success');
+    await carregarFaturas();
+  } else {
+    toast('Falha ao excluir. Worker pode estar offline.', 'error');
+  }
+}
+
+async function limparDuplicatas(){
+  var grupos = {};
+  D.faturas.forEach(function(f){
+    if(!f.uc || !f.mes_referencia) return;
+    var k = String(f.uc).trim() + '|' + String(f.mes_referencia).trim();
+    if(!grupos[k]) grupos[k] = [];
+    grupos[k].push(f);
+  });
+  var paraExcluir = [];
+  Object.keys(grupos).forEach(function(k){
+    var arr = grupos[k];
+    if(arr.length <= 1) return;
+    arr.sort(function(a,b){
+      var ta = a.parsed_at || '', tb = b.parsed_at || '';
+      return tb.localeCompare(ta);
+    });
+    for(var i=1; i<arr.length; i++) paraExcluir.push(arr[i]);
+  });
+  if(!paraExcluir.length){ toast('Nenhuma duplicata encontrada.', 'info'); return; }
+  if(!confirm(paraExcluir.length+' fatura(s) duplicada(s) encontradas.\n\nMantém a mais recente de cada (UC × mês) e exclui as demais.\n\nSeguir?')) return;
+
+  var btn = document.getElementById('btn-dedup');
+  btn.disabled = true; btn.textContent = '⏳ Limpando...';
+  var ok = 0, falhas = 0;
+  for(var i=0; i<paraExcluir.length; i++){
+    var sucesso = await sbDelete('faturas_parsed?id=eq.'+paraExcluir[i].id);
+    if(sucesso) ok++; else falhas++;
+  }
+  await carregarFaturas();
+  btn.disabled = false; btn.textContent = '🧹 Limpar duplicatas';
+  if(falhas) toast(ok+' excluída(s), '+falhas+' falhou(aram).', 'warn');
+  else toast(ok+' duplicata(s) removida(s).', 'success');
+}
+
+// ── Worker status ──────────────────────────────────────────────────────────
+async function checkWorker(){
+  var dot = document.getElementById('worker-dot');
+  var txt = document.getElementById('worker-text');
+  try{
+    var r = await fetch(RW+'/health', {signal: AbortSignal.timeout(5000)});
+    if(r.ok){ dot.className = 'dot ok'; txt.textContent = 'worker online'; return; }
+  } catch(_){}
+  dot.className = 'dot err'; txt.textContent = 'worker offline';
+}
+
+// ── Boot + auto-refresh ────────────────────────────────────────────────────
+async function carregarTudo(){
+  await Promise.all([carregarExtracoes(), carregarFaturas()]);
+}
+
+(async function init(){
+  await checkWorker();
+  await carregarTudo();
+  // Auto-refresh a cada 5s — só se houver extração em andamento ou pendente
+  setInterval(async function(){
+    var temAndando = D.extracoes.some(function(t){ return t.status==='pendente' || t.status==='em_progresso'; });
+    if(temAndando) await carregarTudo();
+  }, 5000);
+  // Health check a cada 30s
+  setInterval(checkWorker, 30000);
+})();
+</script>
+</body>
+</html>
