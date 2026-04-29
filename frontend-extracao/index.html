@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Extração de Faturas — Amazonas Energia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f8fafc;--bg2:#fff;--bg3:#f1f5f9;
+  --border:#e2e8f0;--border2:#cbd5e1;
+  --text:#0f172a;--muted:#64748b;--hint:#94a3b8;
+  --green:#059669;--green-bg:#d1fae5;
+  --amber:#d97706;--amber-bg:#fef3c7;
+  --red:#dc2626;--red-bg:#fee2e2;
+  --blue:#2563eb;--blue-bg:#dbeafe;
+  --accent:#0f172a;--radius:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sans-serif;font-size:14px;line-height:1.5}
+.wrap{max-width:1100px;margin:0 auto;padding:24px 20px 80px}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;gap:16px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-icon{width:42px;height:42px;border-radius:10px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700}
+.brand-title{font-size:18px;font-weight:700;line-height:1.2}
+.brand-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.worker-status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);background:var(--bg2);padding:8px 14px;border:1px solid var(--border);border-radius:999px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--hint)}
+.dot.ok{background:var(--green);box-shadow:0 0 0 3px var(--green-bg)}
+.dot.err{background:var(--red);box-shadow:0 0 0 3px var(--red-bg)}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:18px;overflow:hidden}
+.card-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.card-title{font-size:14px;font-weight:600}
+.card-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.card-body{padding:18px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-group{display:flex;flex-direction:column;gap:6px}
+.form-group.full{grid-column:1/-1}
+.form-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.form-input,.form-select{padding:10px 12px;border:1px solid var(--border2);border-radius:8px;font-size:13px;font-family:inherit;background:var(--bg2);color:var(--text);transition:border-color .15s,box-shadow .15s;width:100%}
+.form-input:focus,.form-select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-bg)}
+.btn{font-size:13px;padding:10px 16px;border:1px solid var(--border2);border-radius:8px;cursor:pointer;color:var(--text);background:var(--bg2);font-family:inherit;transition:all .15s;font-weight:500}
+.btn:hover:not(:disabled){background:var(--bg3)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn.primary:hover:not(:disabled){opacity:.9;background:var(--accent)}
+.btn.green{background:var(--green);color:#fff;border-color:var(--green)}
+.btn.green:hover:not(:disabled){opacity:.9;background:var(--green)}
+.btn.red{background:var(--red-bg);color:var(--red);border-color:#fecaca}
+.btn.red:hover:not(:disabled){background:#fecaca}
+.btn.sm{font-size:11px;padding:5px 10px}
+.btn.full{width:100%;padding:12px;font-size:14px;font-weight:600}
+.help{font-size:11px;color:var(--hint);line-height:1.5}
+.error{display:none;background:var(--red-bg);border:1px solid #fecaca;color:var(--red);font-size:12px;padding:10px 14px;border-radius:8px;margin-top:10px}
+.error.show{display:block}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:600;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--bg3)}
+td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.r{text-align:right}
+.muted{color:var(--muted);font-size:11px}
+.badge{display:inline-block;padding:3px 8px;border-radius:5px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.badge.gray{background:var(--bg3);color:var(--muted)}
+.badge.ok{background:var(--green-bg);color:var(--green)}
+.badge.warn{background:var(--amber-bg);color:var(--amber)}
+.badge.err{background:var(--red-bg);color:var(--red)}
+.badge.info{background:var(--blue-bg);color:var(--blue)}
+.empty{padding:32px 18px;text-align:center;color:var(--muted)}
+.empty-icon{font-size:32px;margin-bottom:6px;opacity:.5}
+.spinner{width:14px;height:14px;border:2px solid var(--border);border-top:2px solid var(--blue);border-radius:50%;animation:spin .9s linear infinite;display:inline-block;vertical-align:-2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:640px){
+  .wrap{padding:18px 14px 60px}
+  .form-grid{grid-template-columns:1fr}
+  table{font-size:12px}
+  th,td{padding:8px}
+  .header{flex-direction:column;align-items:flex-start}
+}
+/* Toast */
+#toast-container{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:10px;pointer-events:none}
+.toast{pointer-events:auto;min-width:260px;max-width:380px;padding:12px 14px 12px 16px;border-radius:10px;background:var(--bg2);border-left:4px solid var(--blue);box-shadow:0 10px 25px rgba(15,23,42,.12),0 2px 6px rgba(15,23,42,.06);display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--text);animation:toast-in .22s ease-out}
+.toast.out{animation:toast-out .2s ease-in forwards}
+.toast .ico{font-size:16px;line-height:1.2;flex-shrink:0}
+.toast .msg{flex:1;line-height:1.45}
+.toast .close{background:none;border:none;color:var(--hint);cursor:pointer;font-size:16px;padding:0;line-height:1;margin-left:4px}
+.toast.success{border-left-color:var(--green)}
+.toast.error{border-left-color:var(--red)}
+.toast.warn{border-left-color:var(--amber)}
+.toast.info{border-left-color:var(--blue)}
+@keyframes toast-in{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes toast-out{to{transform:translateX(100%);opacity:0}}
+@media (max-width:640px){#toast-container{left:12px;right:12px;top:12px}.toast{min-width:0;max-width:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div>
+        <div class="brand-title">Extração de Faturas</div>
+        <div class="brand-sub">Amazonas Energia · portal automático</div>
+      </div>
+    </div>
+    <div class="worker-status" id="worker-status">
+      <span class="dot" id="worker-dot"></span>
+      <span id="worker-label">Verificando worker...</span>
+    </div>
+  </div>
+
+  <!-- ── Card 1: Nova extração ────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Nova extração</div>
+        <div class="card-sub">Informe as credenciais do portal — o worker baixa as faturas em segundos.</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label">CPF ou CNPJ *</label>
+          <input id="f-cpf" class="form-input" type="text" placeholder="000.000.000-00 ou 00.000.000/0001-00" oninput="this.value=formatDoc(this.value)" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Senha do portal *</label>
+          <input id="f-senha" class="form-input" type="password" placeholder="Senha de acesso" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Período</label>
+          <select id="f-meses" class="form-select">
+            <option value="1" selected>Último mês</option>
+            <option value="3">Últimos 3 meses</option>
+            <option value="6">Últimos 6 meses</option>
+            <option value="12">Últimos 12 meses</option>
+            <option value="24">Últimos 24 meses</option>
+            <option value="36">Últimos 36 meses</option>
+            <option value="60">Últimos 60 meses</option>
+            <option value="120">Últimos 120 meses (auditoria)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">E-mail (opcional)</label>
+          <input id="f-email" class="form-input" type="email" placeholder="cliente@empresa.com" autocomplete="off">
+        </div>
+        <div class="form-group full">
+          <button id="f-btn" class="btn green full" onclick="dispararExtracao()">⚡ Extrair Faturas</button>
+          <div class="help" style="margin-top:8px">As faturas baixadas vão direto pra tabela abaixo. A análise é feita só quando o operador pedir, no painel de análise.</div>
+        </div>
+      </div>
+      <div id="f-error" class="error"></div>
+    </div>
+  </div>
+
+  <!-- ── Card 2: Extrações em andamento ───────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Extrações <span id="ext-count" class="badge gray" style="margin-left:6px">0</span></div>
+        <div class="card-sub">Atualiza a cada 5s — mostra as últimas 20.</div>
+      </div>
+      <button class="btn sm" onclick="loadExtracoes()">↻ Atualizar</button>
+    </div>
+    <div id="ext-table"></div>
+  </div>
+
+  <!-- ── Card 3: Faturas baixadas ─────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Faturas baixadas <span id="fat-count" class="badge gray" style="margin-left:6px">0</span></div>
+        <div class="card-sub">Tudo que já foi extraído e salvo em <code>faturas_parsed</code>.</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="fat-busca" class="form-input" style="font-size:12px;padding:7px 10px;width:auto;min-width:180px" placeholder="Buscar por UC ou cliente..." oninput="renderFaturas()">
+        <button id="btn-dedup" class="btn sm" onclick="limparDuplicatas()" title="Mantém a mais recente de cada UC × mês">🧹 Limpar duplicatas</button>
+      </div>
+    </div>
+    <div id="fat-table"></div>
+  </div>
+</div>
+
+<script>
+// ── Config ───────────────────────────────────────────────────────────────────
+const SB  = 'https://shaihalexolocjjkkpoh.supabase.co';
+const KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNoYWloYWxleG9sb2NqamtrcG9oIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMDA2ODUsImV4cCI6MjA5MDU3NjY4NX0.TfMwnhlu-TDZY2n_hxIhpUdXQEOdbr14SuH2e8R9cH8';
+const RW  = 'https://saas-faturas-production.up.railway.app';
+
+let _extracoes = [];
+let _faturas = [];
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function toast(msg, tipo, duration){
+  tipo = tipo || 'info';
+  duration = (duration === undefined) ? 3800 : duration;
+  let c = document.getElementById('toast-container');
+  if(!c){ c = document.createElement('div'); c.id = 'toast-container'; document.body.appendChild(c); }
+  const ico = {success:'✓', error:'✕', warn:'⚠', info:'ℹ'}[tipo] || 'ℹ';
+  const el = document.createElement('div');
+  el.className = 'toast ' + tipo;
+  el.innerHTML = '<span class="ico"></span><div class="msg"></div><button class="close" aria-label="Fechar">✕</button>';
+  el.querySelector('.ico').textContent = ico;
+  el.querySelector('.msg').textContent = msg;
+  const remove = () => { el.classList.add('out'); setTimeout(() => el.remove(), 220); };
+  el.querySelector('.close').onclick = remove;
+  c.appendChild(el);
+  if(duration > 0) setTimeout(remove, duration);
+}
+
+function formatDoc(v){
+  const n = v.replace(/\D/g,'').slice(0,14);
+  if(n.length <= 3) return n;
+  if(n.length <= 6) return n.slice(0,3)+'.'+n.slice(3);
+  if(n.length <= 9) return n.slice(0,3)+'.'+n.slice(3,6)+'.'+n.slice(6);
+  if(n.length <= 11) return n.slice(0,3)+'.'+n.slice(3,6)+'.'+n.slice(6,9)+'-'+n.slice(9);
+  return n.slice(0,2)+'.'+n.slice(2,5)+'.'+n.slice(5,8)+'/'+n.slice(8,12)+'-'+n.slice(12);
+}
+function isCPFouCNPJ(v){ const n=(v||'').replace(/\D/g,'').length; return n===11 || n===14; }
+function maskDoc(v){
+  const d = (v||'').replace(/\D/g,'');
+  if(d.length === 11) return d.slice(0,3)+'.***.***-'+d.slice(-2);
+  if(d.length === 14) return d.slice(0,2)+'.***.***/****-'+d.slice(-2);
+  return d || '—';
+}
+function fmtDate(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  if(isNaN(d)) return '—';
+  return d.toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+function fmtMoney(n){
+  return 'R$ ' + (parseFloat(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+// ── API ──────────────────────────────────────────────────────────────────────
+async function sbGet(ep){
+  const r = await fetch(SB+'/rest/v1/'+ep, {headers:{apikey:KEY,Authorization:'Bearer '+KEY}});
+  return r.ok ? r.json() : [];
+}
+async function sbPost(ep, body){
+  const r = await fetch(SB+'/rest/v1/'+ep, {
+    method:'POST',
+    headers:{apikey:KEY,Authorization:'Bearer '+KEY,'Content-Type':'application/json',Prefer:'return=representation'},
+    body:JSON.stringify(body)
+  });
+  return r.json();
+}
+async function sbDelete(ep){
+  const parts = ep.split('?');
+  const table = parts[0];
+  const qs = parts[1] || '';
+  if(!qs){ console.error('sbDelete: filtro obrigatório'); return false; }
+  try{
+    const r = await fetch(RW+'/db/'+table+'?'+qs, {
+      method:'DELETE',
+      headers:{'Content-Type':'application/json'},
+      signal:AbortSignal.timeout(15000)
+    });
+    return r.ok;
+  }catch(err){
+    console.error('sbDelete falhou:', err);
+    return false;
+  }
+}
+
+// ── Worker status ────────────────────────────────────────────────────────────
+async function checkWorker(){
+  const dot = document.getElementById('worker-dot');
+  const lbl = document.getElementById('worker-label');
+  try{
+    const r = await fetch(RW+'/health', {signal:AbortSignal.timeout(5000)});
+    if(r.ok){ dot.className = 'dot ok'; lbl.textContent = 'Worker online'; return; }
+  }catch(e){}
+  dot.className = 'dot err'; lbl.textContent = 'Worker offline';
+}
+
+// ── Disparar extração ────────────────────────────────────────────────────────
+async function dispararExtracao(){
+  const cpf = (document.getElementById('f-cpf').value||'').replace(/\D/g,'');
+  const senha = document.getElementById('f-senha').value || '';
+  const meses = parseInt(document.getElementById('f-meses').value, 10) || 1;
+  const email = (document.getElementById('f-email').value||'').trim();
+  const errEl = document.getElementById('f-error');
+  const btn = document.getElementById('f-btn');
+
+  errEl.classList.remove('show');
+
+  if(!cpf || !senha){
+    errEl.textContent = 'Informe CPF/CNPJ e senha.';
+    errEl.classList.add('show');
+    return;
+  }
+  if(!isCPFouCNPJ(cpf)){
+    errEl.textContent = 'CPF ou CNPJ inválido.';
+    errEl.classList.add('show');
+    return;
+  }
+  if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+    errEl.textContent = 'E-mail inválido.';
+    errEl.classList.add('show');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Enviando...';
+  try{
+    const creds = {cpf_cnpj: cpf, senha: senha, meses: meses};
+    if(email) creds.email_contato = email;
+    const r = await sbPost('extraction_requests', {
+      concessionaria: 'amazonas_energia',
+      credentials: creds,
+      status: 'pendente'
+    });
+    if(Array.isArray(r) && r[0] && r[0].id){
+      toast('Extração enviada à fila. Acompanhe abaixo.', 'success');
+      document.getElementById('f-senha').value = '';
+      await loadExtracoes();
+    } else {
+      throw new Error((r && r.message) || 'Falha ao enviar.');
+    }
+  }catch(e){
+    errEl.textContent = 'Erro: ' + (e.message || e);
+    errEl.classList.add('show');
+    toast('Erro ao enviar extração.', 'error');
+  }finally{
+    btn.disabled = false;
+    btn.textContent = '⚡ Extrair Faturas';
+  }
+}
+
+// ── Lista de extrações ───────────────────────────────────────────────────────
+async function loadExtracoes(){
+  const data = await sbGet('extraction_requests?select=id,credentials,concessionaria,status,status_detail,pdf_links,created_at,updated_at&order=created_at.desc&limit=20');
+  _extracoes = Array.isArray(data) ? data : [];
+  document.getElementById('ext-count').textContent = _extracoes.length;
+  renderExtracoes();
+}
+
+function renderExtracoes(){
+  const cont = document.getElementById('ext-table');
+  if(!_extracoes.length){
+    cont.innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div>Nenhuma extração ainda.</div></div>';
+    return;
+  }
+  const statusBadge = {
+    pendente: '<span class="badge info">⏳ Pendente</span>',
+    em_progresso: '<span class="badge warn"><span class="spinner"></span> Em progresso</span>',
+    concluido: '<span class="badge ok">✓ Concluído</span>',
+    erro_extracao: '<span class="badge err">✕ Erro</span>',
+    credenciais_invalidas: '<span class="badge err">🔒 Credenciais inválidas</span>',
+  };
+  const rows = _extracoes.map(e => {
+    const c = e.credentials || {};
+    const cpf = maskDoc(c.cpf_cnpj || '');
+    const meses = c.meses || '?';
+    const badge = statusBadge[e.status] || ('<span class="badge gray">'+e.status+'</span>');
+    const detail = (e.status_detail || '').slice(0, 80);
+    const qtd = Array.isArray(e.pdf_links) ? e.pdf_links.length : 0;
+    return '<tr>'
+      + '<td><strong>'+cpf+'</strong><div class="muted">'+meses+' mês(es)</div></td>'
+      + '<td>'+badge+(detail?'<div class="muted" style="margin-top:4px">'+escapeHtml(detail)+'</div>':'')+'</td>'
+      + '<td class="r">'+(qtd?('<strong>'+qtd+'</strong> faturas'):'<span class="muted">—</span>')+'</td>'
+      + '<td class="r muted">'+fmtDate(e.created_at)+'</td>'
+      + '</tr>';
+  }).join('');
+  cont.innerHTML = '<table>'
+    + '<thead><tr><th>CPF/CNPJ</th><th>Status</th><th class="r">Faturas</th><th class="r">Quando</th></tr></thead>'
+    + '<tbody>'+rows+'</tbody></table>';
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ── Lista de faturas ─────────────────────────────────────────────────────────
+async function loadFaturas(){
+  const data = await sbGet('faturas_parsed?select=id,uc,mes_referencia,cliente_nome,total_a_pagar,source_pdf_path,parsed_at&order=parsed_at.desc&limit=300');
+  _faturas = Array.isArray(data) ? data : [];
+  document.getElementById('fat-count').textContent = _faturas.length;
+  renderFaturas();
+}
+
+function renderFaturas(){
+  const cont = document.getElementById('fat-table');
+  const q = (document.getElementById('fat-busca').value || '').toLowerCase().trim();
+  let lista = _faturas;
+  if(q){
+    lista = lista.filter(f =>
+      String(f.uc||'').toLowerCase().includes(q) ||
+      String(f.cliente_nome||'').toLowerCase().includes(q) ||
+      String(f.mes_referencia||'').toLowerCase().includes(q)
+    );
+  }
+  if(!lista.length){
+    cont.innerHTML = '<div class="empty"><div class="empty-icon">📄</div><div>'+(q?'Nada encontrado pra "'+escapeHtml(q)+'".':'Nenhuma fatura baixada ainda.')+'</div></div>';
+    return;
+  }
+  const rows = lista.map(f => {
+    return '<tr>'
+      + '<td><strong>UC '+escapeHtml(f.uc||'—')+'</strong><div class="muted">'+escapeHtml(f.mes_referencia||'')+'</div></td>'
+      + '<td>'+escapeHtml((f.cliente_nome||'').slice(0,50))+'</td>'
+      + '<td class="r">'+fmtMoney(f.total_a_pagar)+'</td>'
+      + '<td class="r muted">'+fmtDate(f.parsed_at)+'</td>'
+      + '<td class="r" style="white-space:nowrap">'
+        + (f.source_pdf_path ? '<button class="btn sm" onclick="verPdf(\''+f.id+'\')" title="Ver PDF">📄</button> ' : '')
+        + '<button class="btn red sm" onclick="excluirFatura(\''+f.id+'\',\''+(f.uc||'').replace(/\'/g,"")+'\',\''+(f.mes_referencia||'').replace(/\'/g,"")+'\')" title="Excluir">🗑</button>'
+      + '</td>'
+      + '</tr>';
+  }).join('');
+  cont.innerHTML = '<table>'
+    + '<thead><tr><th>UC / Mês</th><th>Cliente</th><th class="r">Valor</th><th class="r">Quando</th><th class="r">Ações</th></tr></thead>'
+    + '<tbody>'+rows+'</tbody></table>';
+}
+
+async function verPdf(faturaId){
+  const f = _faturas.find(x => x.id === faturaId);
+  let path = f && f.source_pdf_path;
+  if(!path){
+    const r = await sbGet('faturas_parsed?id=eq.'+faturaId+'&select=source_pdf_path');
+    path = (Array.isArray(r) && r[0]) ? r[0].source_pdf_path : null;
+  }
+  if(!path){ toast('PDF não disponível.', 'warn'); return; }
+  window.open(SB + '/storage/v1/object/public/Faturas/' + path, '_blank');
+}
+
+async function excluirFatura(id, uc, mes){
+  const lbl = (uc?('UC '+uc):'') + (mes?(' · '+mes):'');
+  if(!confirm('Excluir essa fatura?\n\n'+lbl+'\n\nA análise vinculada também será removida (cascade).')) return;
+  const ok = await sbDelete('faturas_parsed?id=eq.'+id);
+  if(ok){
+    toast('Fatura removida.', 'success');
+    await loadFaturas();
+  } else {
+    toast('Falha ao excluir. Worker offline?', 'error');
+  }
+}
+
+async function limparDuplicatas(){
+  const grupos = {};
+  _faturas.forEach(f => {
+    if(!f.uc || !f.mes_referencia) return;
+    const k = String(f.uc).trim() + '|' + String(f.mes_referencia).trim();
+    (grupos[k] = grupos[k] || []).push(f);
+  });
+  const paraExcluir = [];
+  Object.keys(grupos).forEach(k => {
+    const arr = grupos[k];
+    if(arr.length <= 1) return;
+    arr.sort((a,b) => String(b.parsed_at||'').localeCompare(String(a.parsed_at||'')));
+    for(let i=1; i<arr.length; i++) paraExcluir.push(arr[i]);
+  });
+  if(!paraExcluir.length){ toast('Nenhuma duplicata encontrada.', 'info'); return; }
+  if(!confirm('Encontradas '+paraExcluir.length+' duplicata(s).\n\nMantém a mais recente de cada UC × mês e exclui as demais.\nSeguir?')) return;
+
+  const btn = document.getElementById('btn-dedup');
+  btn.disabled = true; btn.textContent = '⏳ Limpando...';
+  let ok = 0, falhas = 0;
+  for(const f of paraExcluir){
+    const r = await sbDelete('faturas_parsed?id=eq.'+f.id);
+    if(r) ok++; else falhas++;
+  }
+  btn.disabled = false; btn.textContent = '🧹 Limpar duplicatas';
+  await loadFaturas();
+  if(falhas) toast(ok+' excluída(s), '+falhas+' falhou(aram).', 'warn');
+  else toast(ok+' duplicata(s) removida(s).', 'success');
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+async function init(){
+  checkWorker();
+  await Promise.all([loadExtracoes(), loadFaturas()]);
+  // Polling
+  setInterval(loadExtracoes, 5000);
+  setInterval(loadFaturas, 15000);
+  setInterval(checkWorker, 30000);
+}
+init();
+</script>
+</body>
+</html>
