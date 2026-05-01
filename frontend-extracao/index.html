@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <style>
 :root{
   --bg:#f8fafc; --bg2:#fff; --bg3:#f1f5f9;
@@ -101,7 +102,7 @@ tr:last-child td{border-bottom:0}
 .grupo-info{flex:1;min-width:0}
 .grupo-nome{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .grupo-meta{font-size:11px;color:var(--muted);margin-top:2px}
-.grupo-del{flex-shrink:0}
+.grupo-del,.grupo-zip{flex-shrink:0}
 .grupo-cliente table{margin:0}
 .grupo-cliente th{background:var(--bg2)}
 
@@ -534,6 +535,7 @@ async function carregarFaturas(){
           + '<div class="grupo-nome">'+escapeHTML(g.nome)+'</div>'
           + '<div class="grupo-meta">'+docFmt+' · <b>'+g.faturas.length+'</b> fatura(s) · <b>'+fmtBRL(g.total)+'</b></div>'
         + '</div>'
+        + '<button class="btn sm grupo-zip" id="zip-btn-'+idx+'" onclick="event.preventDefault();baixarGrupoZip('+idx+')" title="Baixar todas as faturas como ZIP">📥 ZIP</button>'
         + '<button class="btn red sm grupo-del" onclick="event.preventDefault();excluirGrupo('+idx+')" title="Excluir todas as faturas do grupo">🗑 Excluir grupo</button>'
       + '</summary>'
       + '<table><thead><tr>'
@@ -553,6 +555,101 @@ async function carregarFaturas(){
     html += '</tbody></table></details>';
   });
   cont.innerHTML = html;
+}
+
+function safeFileName(s){
+  return String(s||'').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g,' ').trim().slice(0, 80) || 'sem_nome';
+}
+
+async function fetchPdfBlob(f){
+  // 1. tenta source_pdf_path
+  if(f.source_pdf_path){
+    try{
+      var r = await fetch(pdfUrl(f.source_pdf_path));
+      if(r.ok) return await r.blob();
+    }catch(_){}
+  }
+  // 2. fallback: detalhada → simples
+  var det = buildPdfPath(f, 'detalhada');
+  if(det){
+    try{
+      var r2 = await fetch(pdfUrl(det));
+      if(r2.ok) return await r2.blob();
+    }catch(_){}
+  }
+  var sim = buildPdfPath(f, 'simples');
+  if(sim){
+    try{
+      var r3 = await fetch(pdfUrl(sim));
+      if(r3.ok) return await r3.blob();
+    }catch(_){}
+  }
+  return null;
+}
+
+async function baixarGrupoZip(idx){
+  var chave = D._ordemGrupos && D._ordemGrupos[idx];
+  var g = chave && D._grupos && D._grupos[chave];
+  if(!g || !g.faturas.length){ toast('Grupo vazio.', 'info'); return; }
+  if(typeof JSZip === 'undefined'){ toast('Biblioteca de ZIP não carregou. F5 e tente novamente.', 'error'); return; }
+
+  var btn = document.getElementById('zip-btn-' + idx);
+  var labelOriginal = btn ? btn.textContent : '📥 ZIP';
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ 0/' + g.faturas.length; }
+
+  var zip = new JSZip();
+  var folderName = safeFileName(g.nome) + (g.doc ? ' - ' + g.doc : '');
+  var folder = zip.folder(folderName);
+
+  // Concorrência: 4 paralelas pra não sobrecarregar Storage
+  var idxNext = 0;
+  var ok = 0, falhas = 0;
+  var total = g.faturas.length;
+
+  async function worker(){
+    while(idxNext < total){
+      var i = idxNext++;
+      var f = g.faturas[i];
+      var blob = await fetchPdfBlob(f);
+      if(blob){
+        var fname = safeFileName('UC_' + (f.uc || '?') + '_' + (f.mes_referencia || '').replace('/','-')) + '.pdf';
+        // evita colisão de nome (mesma UC × mês)
+        var unique = fname, n = 2;
+        while(folder.file(unique)){ unique = fname.replace(/\.pdf$/, '_'+n+'.pdf'); n++; }
+        folder.file(unique, blob);
+        ok++;
+      } else {
+        falhas++;
+      }
+      if(btn) btn.textContent = '⏳ ' + (ok+falhas) + '/' + total;
+    }
+  }
+  await Promise.all([worker(), worker(), worker(), worker()]);
+
+  if(!ok){
+    if(btn){ btn.disabled = false; btn.textContent = labelOriginal; }
+    toast('Nenhum PDF encontrado pra baixar.', 'error');
+    return;
+  }
+
+  if(btn) btn.textContent = '🗜 Compactando...';
+  var zipBlob = await zip.generateAsync({type:'blob', compression:'DEFLATE', compressionOptions:{level:6}}, function(meta){
+    if(btn) btn.textContent = '🗜 ' + Math.floor(meta.percent) + '%';
+  });
+
+  var nomeArquivo = 'Faturas_' + safeFileName(g.nome) + (g.doc ? '_' + g.doc : '') + '.zip';
+  var url = URL.createObjectURL(zipBlob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = nomeArquivo;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+
+  if(btn){ btn.disabled = false; btn.textContent = labelOriginal; }
+  if(falhas) toast(ok+' baixadas, '+falhas+' falhou(aram). ZIP gerado.', 'warn');
+  else toast('ZIP com '+ok+' fatura(s) baixado.', 'success');
 }
 
 async function excluirGrupo(idx){
