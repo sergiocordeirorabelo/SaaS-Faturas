@@ -386,7 +386,7 @@ function fmtElapsed(ms){
 async function atualizarProgresso(){
   if(!P.id) return;
   var resultados = await Promise.all([
-    sbGet('extraction_requests?id=eq.'+P.id+'&select=id,status,status_detail,pdf_links,credentials,updated_at'),
+    sbGet('extraction_requests?id=eq.'+P.id+'&select=id,status,status_detail,pdf_links,updated_at'),
     sbGet('faturas_parsed?extraction_id=eq.'+P.id+'&select=id'),
   ]);
   var rows = resultados[0];
@@ -486,7 +486,7 @@ async function abrirPdf(faturaId){
 async function carregarFaturas(){
   var resultados = await Promise.all([
     sbGet('faturas_parsed?select=id,extraction_id,uc,mes_referencia,cliente_nome,total_a_pagar,parsed_at,source_pdf_path&order=parsed_at.desc&limit=500'),
-    sbGet('extraction_requests?select=id,credentials&limit=2000'),
+    sbGet('extraction_requests?select=id,cpf_cnpj:credentials->>cpf_cnpj&limit=2000'),
   ]);
   D.faturas = Array.isArray(resultados[0]) ? resultados[0] : [];
   var extracoes = Array.isArray(resultados[1]) ? resultados[1] : [];
@@ -494,7 +494,7 @@ async function carregarFaturas(){
   // mapa extraction_id -> cpf_cnpj
   var docPorExt = {};
   extracoes.forEach(function(e){
-    var doc = e && e.credentials && e.credentials.cpf_cnpj;
+    var doc = e && e.cpf_cnpj;
     if(e && e.id && doc) docPorExt[e.id] = String(doc).replace(/\D/g,'');
   });
 
