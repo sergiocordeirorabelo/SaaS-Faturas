@@ -78,37 +78,6 @@ class SupabaseClient:
         await loop.run_in_executor(None, _update)
         logger.debug(f"[Task {task_id}] Status → {status}")
 
-        # Em status terminal, apaga a senha do portal pra não persistir em texto plano.
-        if status in {"concluido", "erro_extracao", "credenciais_invalidas"}:
-            try:
-                await self.clear_credentials_password(task_id)
-            except Exception as exc:
-                logger.warning(f"[Task {task_id}] Falha limpando senha: {exc}")
-
-    async def clear_credentials_password(self, task_id: str) -> None:
-        """Remove credentials.senha após o worker terminar a extração."""
-        loop = asyncio.get_event_loop()
-
-        def _clear():
-            r = (
-                self._client.table(TABLE_REQUESTS)
-                .select("credentials")
-                .eq("id", task_id)
-                .limit(1)
-                .execute()
-            )
-            rows = r.data or []
-            if not rows:
-                return
-            creds = rows[0].get("credentials") or {}
-            if "senha" not in creds:
-                return
-            creds.pop("senha", None)
-            self._client.table(TABLE_REQUESTS).update({"credentials": creds}).eq("id", task_id).execute()
-            logger.info(f"[Task {task_id}] credentials.senha removida")
-
-        await loop.run_in_executor(None, _clear)
-
     # ─────────────────────────────────────────────────────────────────────────
     # Storage
     # ─────────────────────────────────────────────────────────────────────────
